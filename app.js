@@ -135,6 +135,15 @@ function selectLobbyColor(colorValue) {
   userSelectedColor = colorValue;
   
   if (firebaseMode) {
+    // Apply local highlight instantly for visual feedback
+    COLORS.forEach(c => {
+      const card = document.getElementById(`char-card-${c.value}`);
+      if (card) {
+        if (c.value === colorValue) card.classList.add('selected');
+        else card.classList.remove('selected');
+      }
+    });
+
     // If already registered, update color immediately
     db.ref(`room/players/${myPlayerId}`).once('value', snapshot => {
       if (snapshot.exists()) {
@@ -2264,6 +2273,14 @@ function updateLobbyGridFromFirebase() {
       Object.values(snapshot.val()).forEach(p => list.push(p));
     }
     
+    // 만약 내가 로컬에서 임시 선택한 색상이 이미 다른 사람에 의해 등록되었다면 로컬 선택 해제
+    if (userSelectedColor) {
+      const chosenByOther = list.find(p => p.color === userSelectedColor && p.id !== myPlayerId);
+      if (chosenByOther) {
+        userSelectedColor = '';
+      }
+    }
+    
     COLORS.forEach(color => {
       const card = document.getElementById(`char-card-${color.value}`);
       if (card) {
@@ -2277,7 +2294,7 @@ function updateLobbyGridFromFirebase() {
         
         // Is chosen by me?
         const chosenByMe = list.find(p => p.color === color.value && p.id === myPlayerId);
-        if (chosenByMe) {
+        if (chosenByMe || (userSelectedColor === color.value && !chosenByOther)) {
           card.classList.add('selected');
         }
       }
