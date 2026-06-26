@@ -28,9 +28,9 @@ const GAS = {
   },
   getTeamSizes: function(playerCount) {
     const teamSizes = {
-      5: [2, 3, 2, 3, 3],
+      5: [3, 2, 3, 2, 3],
       6: [2, 3, 4, 3, 4],
-      7: [2, 3, 3, 4, 4],
+      7: [2, 3, 4, 3, 4],
       8: [3, 4, 4, 5, 5],
       9: [3, 4, 4, 5, 5],
       10: [3, 4, 4, 5, 5]
@@ -50,6 +50,12 @@ let playerCount = 5;
 let adminLogged = false;
 let userSelectedColor = '';
 
+// Firebase sync variables
+let firebaseMode = false;
+let db = null;
+let myPlayerId = '';
+let adminAssignedRoles = {}; // Host-only cache for admin monitoring
+
 let gameState = 'setup'; // 'setup', 'waiting_start', 'role_briefing', 'leader_spinning', 'nomination', 'voting', 'mission_depart', 'mission_action', 'mission_reveal', 'assassination', 'ended'
 let players = [];
 let currentRound = 1;
@@ -58,6 +64,12 @@ let rejectCount = 0;
 let vaccineSuccesses = 0;
 let vaccineFails = 0;
 let roundsHistory = []; // Array of 'success' or 'fail'
+
+// Helper to get local player object
+function getMyPlayer() {
+  const targetId = firebaseMode ? myPlayerId : 0;
+  return players.find(p => p.id === targetId) || { id: targetId, name: "Player (나)", color: userSelectedColor || 'red', role: '항체보유자', alliance: 'human', isBot: false };
+}
 
 // Timers
 let timerSec = 0;
@@ -114,36 +126,50 @@ function initLobbyGrid() {
 }
 
 function selectLobbyColor(colorValue) {
-  if (gameState !== 'setup') return;
+  if (gameState !== 'setup' && gameState !== 'waiting_start') return;
   
-  // Unselect previous
-  if (userSelectedColor) {
-    const prevCard = document.getElementById(`char-card-${userSelectedColor}`);
-    if (prevCard) prevCard.classList.remove('selected');
-  }
+  // Check if taken in players list
+  const taken = players.find(p => p.color === colorValue && p.id !== myPlayerId);
+  if (taken) return; // cannot select taken color
   
   userSelectedColor = colorValue;
-  const newCard = document.getElementById(`char-card-${colorValue}`);
-  if (newCard) newCard.classList.add('selected');
   
-  // Disable selection of other colors to simulate bots taking them
-  // In a real game, this happens dynamically, here we simulate random selections for the other playerCount - 1 players
-  COLORS.forEach(color => {
-    const card = document.getElementById(`char-card-${color.value}`);
-    if (card && color.value !== colorValue) {
-      card.classList.remove('disabled');
-    }
-  });
+  if (firebaseMode) {
+    // If already registered, update color immediately
+    db.ref(`room/players/${myPlayerId}`).once('value', snapshot => {
+      if (snapshot.exists()) {
+        db.ref(`room/players/${myPlayerId}/color`).set(colorValue);
+      } else {
+        updateLobbyGridFromFirebase();
+      }
+    });
+  } else {
+    // Local mode: use previous highlight code
+    COLORS.forEach(c => {
+      const card = document.getElementById(`char-card-${c.value}`);
+      if (card) {
+        if (c.value === colorValue) card.classList.add('selected');
+        else card.classList.remove('selected');
+      }
+    });
+    
+    // Disable colors for bots
+    COLORS.forEach(color => {
+      const card = document.getElementById(`char-card-${color.value}`);
+      if (card && color.value !== colorValue) {
+        card.classList.remove('disabled');
+      }
+    });
 
-  const availableColors = COLORS.filter(c => c.value !== colorValue);
-  const shuffledColors = availableColors.sort(() => 0.5 - Math.random());
-  
-  // Disable the first N-1 colors for bots
-  const numBots = playerCount - 1;
-  for (let i = 0; i < numBots; i++) {
-    const botColor = shuffledColors[i].value;
-    const card = document.getElementById(`char-card-${botColor}`);
-    if (card) card.classList.add('disabled');
+    const availableColors = COLORS.filter(c => c.value !== colorValue);
+    const shuffledColors = availableColors.sort(() => 0.5 - Math.random());
+    
+    const numBots = playerCount - 1;
+    for (let i = 0; i < numBots; i++) {
+      const botColor = shuffledColors[i].value;
+      const card = document.getElementById(`char-card-${botColor}`);
+      if (card) card.classList.add('disabled');
+    }
   }
 }
 
@@ -160,9 +186,13 @@ function adjustSetupPlayers(dir) {
   document.getElementById('test-player-count').value = newVal;
   document.getElementById('player-count-val').innerText = `${newVal}명`;
   
-  // Re-run color reservation
-  if (userSelectedColor) {
-    selectLobbyColor(userSelectedColor);
+  if (firebaseMode) {
+    db.ref('room/playerCount').set(newVal);
+  } else {
+    // Re-run color reservation locally
+    if (userSelectedColor) {
+      selectLobbyColor(userSelectedColor);
+    }
   }
 }
 
@@ -182,6 +212,18 @@ function switchView(viewName) {
   
   const targetView = document.getElementById(`${viewName}-view`);
   if (targetView) targetView.classList.add('active-view');
+  
+  // Test toggle button visibility
+  const testToggleBtn = document.getElementById('test-toggle-btn');
+  const testPanel = document.getElementById('test-control-panel');
+  if (testToggleBtn) {
+    if (viewName === 'admin') {
+      testToggleBtn.classList.remove('hidden');
+    } else {
+      testToggleBtn.classList.add('hidden');
+      if (testPanel) testPanel.classList.add('hidden'); // auto close test panel when switching
+    }
+  }
   
   // Extra rendering updates
   if (viewName === 'admin') {
@@ -250,7 +292,8 @@ function setupPlayers() {
     role: shuffledRoles[0],
     alliance: getAlliance(shuffledRoles[0]),
     isLeader: false,
-    isOnline: true
+    isOnline: true,
+    isBot: false
   });
   
   // Create bots
@@ -262,7 +305,8 @@ function setupPlayers() {
       role: shuffledRoles[i],
       alliance: getAlliance(shuffledRoles[i]),
       isLeader: false,
-      isOnline: true
+      isOnline: true,
+      isBot: true
     });
   }
   
@@ -278,7 +322,7 @@ function getAlliance(role) {
 
 function renderPlayerAvatarSVG() {
   const container = document.getElementById('player-avatar-svg-placeholder');
-  const user = players[0];
+  const user = getMyPlayer();
   const colorObj = COLORS.find(c => c.value === user.color);
   if (colorObj) {
     container.innerHTML = getCrewmateSVG(colorObj.primary, colorObj.shadow);
@@ -291,44 +335,101 @@ function startGameFromLobby() {
     return;
   }
   
-  setupPlayers();
-  gameState = 'waiting_start';
+  const nickInput = document.getElementById('lobby-nickname-input');
+  let nick = nickInput ? nickInput.value.trim() : '';
+  if (!nick) nick = 'Player';
   
-  // Transition to waiting page in player view
-  switchView('player');
-  document.getElementById('player-game-screen').classList.add('hidden');
-  document.getElementById('player-intro-screen').classList.remove('hidden');
-  
-  const storyField = document.getElementById('intro-story-text');
-  storyField.innerText = "대기실 대기 중...\n관리자가 대시보드에서 '게임 시작'을 눌러야 시작됩니다.";
-  storyField.classList.add('fade-in');
-  
-  // Open Admin screen trigger automatically if logged in, otherwise hint
-  // (In real life, host screen and player screen are on different devices. In SPA, we set up views)
-  renderAdminMonitor();
-  updateAdminStatusBoard();
+  if (firebaseMode) {
+    // Register player in Firebase under myPlayerId
+    const newPlayer = {
+      id: myPlayerId,
+      name: nick,
+      color: userSelectedColor,
+      isLeader: false,
+      isOnline: true,
+      isBot: false
+    };
+    
+    db.ref(`room/players/${myPlayerId}`).set(newPlayer);
+    
+    // Transition to waiting page in player view
+    switchView('player');
+    document.getElementById('player-game-screen').classList.add('hidden');
+    document.getElementById('player-intro-screen').classList.remove('hidden');
+    
+    const storyField = document.getElementById('intro-story-text');
+    storyField.innerText = "대기실 대기 중...\n관리자가 대시보드에서 '게임 시작'을 눌러야 시작됩니다.";
+    storyField.classList.add('fade-in');
+  } else {
+    // Local fallback mode
+    setupPlayers();
+    gameState = 'waiting_start';
+    
+    // Transition to waiting page in player view
+    switchView('player');
+    document.getElementById('player-game-screen').classList.add('hidden');
+    document.getElementById('player-intro-screen').classList.remove('hidden');
+    
+    const storyField = document.getElementById('intro-story-text');
+    storyField.innerText = "대기실 대기 중...\n관리자가 대시보드에서 '게임 시작'을 눌러야 시작됩니다.";
+    storyField.classList.add('fade-in');
+    
+    renderAdminMonitor();
+    updateAdminStatusBoard();
+  }
 }
 
 // ==================== INTRO BRIEFING SIMULATION ====================
 
 function adminStartGame() {
-  if (gameState !== 'waiting_start' && gameState !== 'setup') {
-    // If not set up yet (e.g. bypassed lobby), force set up
-    if (players.length === 0) {
-      userSelectedColor = 'red';
-      setupPlayers();
+  if (firebaseMode) {
+    if (players.length < playerCount) {
+      alert("참가 인원수가 부족합니다. 더 대기하거나 봇으로 채워주세요.");
+      return;
     }
+    
+    // Assign roles
+    const rolesConfig = GAS.getRolesConfig(playerCount);
+    const shuffledRoles = [...rolesConfig.roles].sort(() => 0.5 - Math.random());
+    
+    const privateRoles = {};
+    adminAssignedRoles = {};
+    players.forEach((p, idx) => {
+      privateRoles[p.id] = {
+        role: shuffledRoles[idx],
+        alliance: getAlliance(shuffledRoles[idx])
+      };
+      adminAssignedRoles[p.id] = {
+        role: shuffledRoles[idx],
+        alliance: getAlliance(shuffledRoles[idx])
+      };
+    });
+    
+    db.ref('room/privateRoles').set(privateRoles);
+    
+    // Set game state to briefing
+    db.ref('room/state').set('role_briefing');
+    
+    // Clear logs
+    db.ref('room/logs').remove();
+    addAdminLog("게임이 시작되었습니다. 역할을 배정하고 브리핑을 재생합니다.", 'success');
+  } else {
+    // Local fallback
+    if (gameState !== 'waiting_start' && gameState !== 'setup') {
+      if (players.length === 0) {
+        userSelectedColor = 'red';
+        setupPlayers();
+      }
+    }
+    
+    gameState = 'role_briefing';
+    document.getElementById('admin-start-btn').disabled = true;
+    document.getElementById('admin-stop-btn').disabled = false;
+    
+    renderAdminMonitor();
+    updateAdminStatusBoard();
+    playIntroSequence();
   }
-  
-  gameState = 'role_briefing';
-  document.getElementById('admin-start-btn').disabled = true;
-  document.getElementById('admin-stop-btn').disabled = false;
-  
-  renderAdminMonitor();
-  updateAdminStatusBoard();
-  
-  // Start intro story sequence on player screen
-  playIntroSequence();
 }
 
 function playIntroSequence() {
@@ -422,7 +523,8 @@ function startLeaderSelectionRoulette() {
   
   // Spin roulette wheel
   rouletteAngle = 0;
-  rouletteSpeed = 0.4 + Math.random() * 0.3; // initial speed rad/frame
+  const initialSpeed = 0.4 + Math.random() * 0.3; // initial speed rad/frame
+  rouletteSpeed = initialSpeed;
   rouletteAnimating = true;
   
   document.getElementById('game-status-msg').innerText = "1라운드 운송대 편성을 담당할 대장을 무작위 선정 중입니다...";
@@ -431,7 +533,17 @@ function startLeaderSelectionRoulette() {
   if (winTextPlayer) winTextPlayer.innerText = "회전 중...";
   if (winTextAdmin) winTextAdmin.innerText = "회전 중...";
   
-  animateRoulette();
+  if (firebaseMode) {
+    if (adminLogged) {
+      db.ref('room/rouletteStart').set({
+        randSpeed: initialSpeed,
+        winningIdx: rouletteTargetIdx,
+        timestamp: Date.now()
+      });
+    }
+  } else {
+    animateRoulette();
+  }
 }
 
 function animateRoulette() {
@@ -522,9 +634,9 @@ function startNominationPhase() {
   const sizeRequired = teamSizes[currentRound - 1];
   
   const leader = players[currentPhaseLeader];
-  const isUserLeader = (currentPhaseLeader === 0);
+  const isUserLeader = (leader && leader.id === (firebaseMode ? myPlayerId : 0));
   
-  document.getElementById('game-status-msg').innerText = `${leader.name}이 운송대 명단(${sizeRequired}명)을 편성 중입니다.`;
+  document.getElementById('game-status-msg').innerText = `${leader ? leader.name : '대장'}이 운송대 명단(${sizeRequired}명)을 편성 중입니다.`;
   
   // Set 60s timer
   startTimer(60, () => {
@@ -538,18 +650,20 @@ function startNominationPhase() {
   });
   
   // Render buttons/selectors
-  if (isUserLeader) {
+  if (isUserLeader && !adminLogged) {
     document.getElementById('control-nomination').classList.remove('hidden');
     document.getElementById('req-team-size').innerText = sizeRequired;
     renderNominationSelectorGrid(sizeRequired);
   } else {
     document.getElementById('control-nomination').classList.add('hidden');
     // Bot nomination schedule
-    setTimeout(() => {
-      if (gameState === 'nomination') {
-        botPerformNomination(sizeRequired);
-      }
-    }, 4000 + Math.random() * 3000); // 4-7 seconds delay
+    if (!firebaseMode || adminLogged) {
+      setTimeout(() => {
+        if (gameState === 'nomination') {
+          botPerformNomination(sizeRequired);
+        }
+      }, 4000 + Math.random() * 3000); // 4-7 seconds delay
+    }
   }
 }
 
@@ -597,11 +711,17 @@ function toggleNomineeSelection(playerId, sizeRequired) {
 }
 
 function submitNomination() {
-  clearInterval(timerInterval);
-  document.getElementById('control-nomination').classList.add('hidden');
-  
-  // Announce nominated team to everyone
-  announceNominatedTeam();
+  if (firebaseMode) {
+    db.ref('room/selectedNominees').set(selectedNominees);
+    db.ref('room/nominationSubmitted').set(true);
+    db.ref('room/state').set('voting');
+  } else {
+    clearInterval(timerInterval);
+    document.getElementById('control-nomination').classList.add('hidden');
+    
+    // Announce nominated team to everyone
+    announceNominatedTeam();
+  }
 }
 
 function autoNominateRandomly(sizeRequired) {
@@ -712,15 +832,17 @@ function startVotingPhase() {
   });
   
   // Bot voting schedule
-  players.forEach(p => {
-    if (p.id !== 0) { // bots
-      setTimeout(() => {
-        if (gameState === 'voting' && votes[p.id] === undefined) {
-          botCastVote(p);
-        }
-      }, 1000 + Math.random() * 4000); // 1-5 seconds delay
-    }
-  });
+  if (!firebaseMode || adminLogged) {
+    players.forEach(p => {
+      if (p.isBot) { // bots
+        setTimeout(() => {
+          if (gameState === 'voting' && votes[p.id] === undefined) {
+            botCastVote(p);
+          }
+        }, 1000 + Math.random() * 4000); // 1-5 seconds delay
+      }
+    });
+  }
 }
 
 function botCastVote(bot) {
@@ -761,11 +883,17 @@ function botCastVote(bot) {
 }
 
 function castVote(approve) {
-  votes[0] = approve;
-  document.getElementById('control-voting').classList.add('hidden');
-  document.getElementById('vote-submitted-status').innerText = `투표 완료: ${approve ? '찬성' : '반대'}을 제출했습니다. 다른 참가자들을 대기 중...`;
-  
-  checkAllVotesCast();
+  if (firebaseMode) {
+    db.ref(`room/votes/${myPlayerId}`).set(approve);
+    document.getElementById('control-voting').classList.add('hidden');
+    document.getElementById('vote-submitted-status').innerText = `투표 완료: ${approve ? '찬성' : '반대'}을 제출했습니다. 다른 참가자들을 대기 중...`;
+  } else {
+    votes[0] = approve;
+    document.getElementById('control-voting').classList.add('hidden');
+    document.getElementById('vote-submitted-status').innerText = `투표 완료: ${approve ? '찬성' : '반대'}을 제출했습니다. 다른 참가자들을 대기 중...`;
+    
+    checkAllVotesCast();
+  }
 }
 
 function checkAllVotesCast() {
@@ -800,10 +928,21 @@ function tallyVotes() {
     : `투표는 ${approves}:${rejects}으로 부결되었습니다. 리더가 다음 인물로 넘어갑니다.`;
     
   const statusMsgField = document.getElementById('game-status-msg');
-  if (passed) {
-    statusMsgField.innerHTML = `<span class="good-text" style="font-weight: bold; text-shadow: 0 0 10px var(--neon-green);">${msgText}</span>`;
-  } else {
-    statusMsgField.innerHTML = `<span class="bad-text" style="font-weight: bold; text-shadow: 0 0 10px var(--neon-red);">${msgText}</span>`;
+  if (statusMsgField) {
+    if (passed) {
+      statusMsgField.innerHTML = `<span class="good-text" style="font-weight: bold; text-shadow: 0 0 10px var(--neon-green);">${msgText}</span>`;
+    } else {
+      statusMsgField.innerHTML = `<span class="bad-text" style="font-weight: bold; text-shadow: 0 0 10px var(--neon-red);">${msgText}</span>`;
+    }
+  }
+  
+  if (firebaseMode && adminLogged) {
+    db.ref('room/voteResult').set({
+      approves: approves,
+      rejects: rejects,
+      passed: passed,
+      rejectCount: passed ? 0 : (rejectCount + 1)
+    });
   }
   
   if (passed) {
@@ -814,9 +953,13 @@ function tallyVotes() {
     // Add logs
     addAdminLog(logText, 'success');
     
+    if (firebaseMode && adminLogged) {
+      db.ref('room/state').set('voting_result');
+    }
+    
     // Delay 4 seconds to show centered message
     setTimeout(() => {
-      if (gameState === 'voting') {
+      if (!firebaseMode || adminLogged) {
         startMissionDepart();
       }
     }, 4000);
@@ -827,9 +970,13 @@ function tallyVotes() {
     
     addAdminLog(logText, 'danger');
     
+    if (firebaseMode && adminLogged) {
+      db.ref('room/state').set('voting_result');
+    }
+    
     // Delay 4 seconds to show centered message
     setTimeout(() => {
-      if (gameState === 'voting') {
+      if (!firebaseMode || adminLogged) {
         if (rejectCount >= 5) {
           // 5 consecutive rejections -> Zombie wins!
           endGame('zombie_rejections');
@@ -841,12 +988,19 @@ function tallyVotes() {
           });
           currentPhaseLeader = nextLeader;
           
-          const leaderObj = players[nextLeader];
-          const colorName = COLORS.find(c => c.value === leaderObj.color).name;
-          document.getElementById('game-leader-name').innerText = `${leaderObj.name} (${colorName})`;
-          
-          renderAdminMonitor();
-          startNominationPhase();
+          if (firebaseMode) {
+            db.ref('room/leaderIdx').set(currentPhaseLeader);
+            db.ref('room/nominationSubmitted').set(false);
+            db.ref('room/selectedNominees').set([]);
+            db.ref('room/votes').remove();
+            db.ref('room/state').set('nomination');
+          } else {
+            const leaderObj = players[nextLeader];
+            const colorName = COLORS.find(c => c.value === leaderObj.color).name;
+            document.getElementById('game-leader-name').innerText = `${leaderObj.name} (${colorName})`;
+            renderAdminMonitor();
+            startNominationPhase();
+          }
         }
       }
     }, 4000);
@@ -859,6 +1013,12 @@ function startMissionDepart() {
   gameState = 'mission_depart';
   updateAdminStatusBoard();
   
+  if (firebaseMode && adminLogged) {
+    db.ref('room/state').set('mission_depart');
+    db.ref('room/missionVotes').remove();
+    db.ref('room/votes').remove();
+  }
+  
   // Show truck departs page
   document.getElementById('screen-info-panel').classList.add('hidden');
   document.getElementById('screen-truck-panel').classList.remove('hidden');
@@ -866,7 +1026,7 @@ function startMissionDepart() {
   
   // Wait 4 seconds for narrative immersion before showing card buttons
   setTimeout(() => {
-    if (gameState === 'mission_depart') {
+    if (!firebaseMode || adminLogged) {
       startMissionActionPhase();
     }
   }, 4000);
@@ -876,17 +1036,21 @@ function startMissionActionPhase() {
   gameState = 'mission_action';
   updateAdminStatusBoard();
   
+  if (firebaseMode && adminLogged) {
+    db.ref('room/state').set('mission_action');
+  }
+  
   missionVotes = [];
   document.getElementById('mission-submitted-status').innerText = '';
   
-  const isOnTeam = selectedNominees.includes(0);
+  const isOnTeam = selectedNominees.includes(firebaseMode ? myPlayerId : 0);
   
   if (isOnTeam) {
     document.getElementById('control-mission').classList.remove('hidden');
     
     // Disable "Zombie Sabotage" (좀비 피습) button for Good alignment
-    const myRole = players[0].role;
-    const isHuman = (getAlliance(myRole) === 'human');
+    const me = getMyPlayer();
+    const isHuman = (me.alliance === 'human');
     
     document.getElementById('mission-fail-btn').disabled = isHuman;
   } else {
@@ -901,11 +1065,13 @@ function startMissionActionPhase() {
       // Find if this player already submitted
       const hasSubmitted = missionVotes.some(v => v.playerId === id);
       if (!hasSubmitted) {
-        const p = players[id];
-        if (p.alliance === 'human') {
-          missionVotes.push({ playerId: id, card: true }); // auto success
-        } else {
-          missionVotes.push({ playerId: id, card: false }); // auto sabotage/fail
+        const p = players.find(x => x.id === id);
+        if (p) {
+          if (p.alliance === 'human') {
+            missionVotes.push({ playerId: id, card: true }); // auto success
+          } else {
+            missionVotes.push({ playerId: id, card: false }); // auto sabotage/fail
+          }
         }
       }
     });
@@ -913,15 +1079,18 @@ function startMissionActionPhase() {
   });
   
   // Bot submissions schedule
-  selectedNominees.forEach(id => {
-    if (id !== 0) { // bots
-      setTimeout(() => {
-        if (gameState === 'mission_action' && !missionVotes.some(v => v.playerId === id)) {
-          botCastMissionCard(players[id]);
-        }
-      }, 1500 + Math.random() * 3500); // 1.5 - 5 seconds delay
-    }
-  });
+  if (!firebaseMode || adminLogged) {
+    selectedNominees.forEach(id => {
+      const p = players.find(x => x.id === id);
+      if (p && p.isBot) { // bots
+        setTimeout(() => {
+          if (gameState === 'mission_action' && !missionVotes.some(v => v.playerId === id)) {
+            botCastMissionCard(p);
+          }
+        }, 1500 + Math.random() * 3500); // 1.5 - 5 seconds delay
+      }
+    });
+  }
 }
 
 function botCastMissionCard(bot) {
@@ -942,11 +1111,17 @@ function botCastMissionCard(bot) {
 }
 
 function submitMissionCard(success) {
-  missionVotes.push({ playerId: 0, card: success });
-  document.getElementById('control-mission').classList.add('hidden');
-  document.getElementById('mission-submitted-status').innerText = `임무 수행 카드 제출 완료: '${success ? '운송 성공' : '좀비 피습'}'을 제출했습니다.`;
-  
-  checkAllMissionCardsSubmitted();
+  if (firebaseMode) {
+    db.ref(`room/missionVotes/${myPlayerId}`).set(success);
+    document.getElementById('control-mission').classList.add('hidden');
+    document.getElementById('mission-submitted-status').innerText = `임무 수행 카드 제출 완료: '${success ? '운송 성공' : '좀비 피습'}'을 제출했습니다.`;
+  } else {
+    missionVotes.push({ playerId: 0, card: success });
+    document.getElementById('control-mission').classList.add('hidden');
+    document.getElementById('mission-submitted-status').innerText = `임무 수행 카드 제출 완료: '${success ? '운송 성공' : '좀비 피습'}'을 제출했습니다.`;
+    
+    checkAllMissionCardsSubmitted();
+  }
 }
 
 function checkAllMissionCardsSubmitted() {
@@ -961,6 +1136,14 @@ function revealMissionCards() {
   gameState = 'mission_reveal';
   updateAdminStatusBoard();
   
+  // Shuffle cards so identity is hidden
+  const shuffledVotes = [...missionVotes].sort(() => 0.5 - Math.random());
+  
+  if (firebaseMode && adminLogged) {
+    db.ref('room/revealedCards').set(shuffledVotes.map(v => v.card));
+    db.ref('room/state').set('mission_reveal');
+  }
+  
   document.getElementById('control-mission').classList.add('hidden');
   document.getElementById('screen-truck-panel').classList.add('hidden');
   document.getElementById('screen-card-reveal').classList.remove('hidden');
@@ -968,9 +1151,6 @@ function revealMissionCards() {
   
   const container = document.getElementById('revealed-cards-container');
   container.innerHTML = '';
-  
-  // Shuffle cards so identity is hidden
-  const shuffledVotes = [...missionVotes].sort(() => 0.5 - Math.random());
   
   // Render cards face down first
   shuffledVotes.forEach((v, idx) => {
@@ -992,7 +1172,9 @@ function revealMissionCards() {
     });
     
     // Tally results
-    setTimeout(tallyMissionResults, 1500);
+    if (!firebaseMode || adminLogged) {
+      setTimeout(tallyMissionResults, 1500);
+    }
   }, 3000);
 }
 
@@ -1016,31 +1198,34 @@ function tallyMissionResults() {
   if (success) {
     vaccineSuccesses++;
     roundsHistory.push('success');
-    statusField.innerHTML = `<span class="good-text">★ 운송 성공! ★</span><br>백신이 무사히 축적되었습니다.`;
+    if (statusField) statusField.innerHTML = `<span class="good-text">★ 운송 성공! ★</span><br>백신이 무사히 축적되었습니다.`;
     logText += `운송 성공!`;
     addAdminLog(logText, 'success');
   } else {
     vaccineFails++;
     roundsHistory.push('fail');
-    statusField.innerHTML = `<span class="bad-text">☠ 좀비 피습! ☠</span><br>백신 혈액 운송이 수포로 돌아갔습니다.`;
+    if (statusField) statusField.innerHTML = `<span class="bad-text">☠ 좀비 피습! ☠</span><br>백신 혈액 운송이 수포로 돌아갔습니다.`;
     logText += `좀비 피습으로 인한 백신 운송 실패!`;
     addAdminLog(logText, 'danger');
   }
   
   // Update admin Beaker progress bar
-  // Succ level fills 1/3, 2/3, 3/3 of height (transform translateY goes from 146px to 94px to 42px to 0px)
   const beakerPercent = Math.min(100, Math.round((vaccineSuccesses / 3) * 100));
-  document.getElementById('beaker-percent').innerText = beakerPercent;
+  const beakerPercentElem = document.getElementById('beaker-percent');
+  if (beakerPercentElem) beakerPercentElem.innerText = beakerPercent;
   
   const liquidTranslate = 146 - (vaccineSuccesses * 48); // 146 -> 98 -> 50 -> 2
-  document.getElementById('vaccine-liquid-group').style.transform = `translateY(${Math.max(0, liquidTranslate)}px)`;
+  const liquidGroup = document.getElementById('vaccine-liquid-group');
+  if (liquidGroup) liquidGroup.style.transform = `translateY(${Math.max(0, liquidTranslate)}px)`;
   
   // Wait 5 seconds on reveal screen before making round transitions
   setTimeout(() => {
-    document.getElementById('screen-card-reveal').classList.add('hidden');
-    document.getElementById('screen-info-panel').classList.remove('hidden');
-    
-    checkGameWinConditions();
+    if (!firebaseMode || adminLogged) {
+      document.getElementById('screen-card-reveal').classList.add('hidden');
+      document.getElementById('screen-info-panel').classList.remove('hidden');
+      
+      checkGameWinConditions();
+    }
   }, 5000);
 }
 
@@ -1064,24 +1249,34 @@ function checkGameWinConditions() {
     });
     currentPhaseLeader = nextLeader;
     
-    const leaderObj = players[nextLeader];
-    const colorObj = COLORS.find(c => c.value === leaderObj.color);
-    document.getElementById('game-leader-name').innerText = `${leaderObj.name} (${colorObj.name})`;
-    
-    // Update the host dashboard leader display
-    const leaderDisplay = document.getElementById('admin-leader-name-display');
-    if (leaderDisplay) {
-      leaderDisplay.innerText = `${leaderObj.name} (${colorObj.name})`;
-      leaderDisplay.style.color = colorObj.primary;
+    if (firebaseMode && adminLogged) {
+      db.ref('room/currentRound').set(currentRound);
+      db.ref('room/leaderIdx').set(currentPhaseLeader);
+      db.ref('room/nominationSubmitted').set(false);
+      db.ref('room/selectedNominees').set([]);
+      db.ref('room/votes').remove();
+      db.ref('room/missionVotes').remove();
+      db.ref('room/revealedCards').remove();
+      db.ref('room/state').set('nomination');
+    } else {
+      const leaderObj = players[nextLeader];
+      const colorObj = COLORS.find(c => c.value === leaderObj.color);
+      document.getElementById('game-leader-name').innerText = `${leaderObj.name} (${colorObj.name})`;
+      
+      // Update the host dashboard leader display
+      const leaderDisplay = document.getElementById('admin-leader-name-display');
+      if (leaderDisplay) {
+        leaderDisplay.innerText = `${leaderObj.name} (${colorObj.name})`;
+        leaderDisplay.style.color = colorObj.primary;
+      }
+      const avatarPlaceholder = document.getElementById('admin-leader-avatar-placeholder');
+      if (avatarPlaceholder) {
+        avatarPlaceholder.innerHTML = getCrewmateSVG(colorObj.primary, colorObj.shadow);
+      }
+      
+      renderAdminMonitor();
+      startNominationPhase();
     }
-    const avatarPlaceholder = document.getElementById('admin-leader-avatar-placeholder');
-    if (avatarPlaceholder) {
-      avatarPlaceholder.innerHTML = getCrewmateSVG(colorObj.primary, colorObj.shadow);
-    }
-    
-    renderAdminMonitor();
-    
-    startNominationPhase();
   }
 }
 
@@ -1091,9 +1286,13 @@ function startAssassinationPhase() {
   gameState = 'assassination';
   updateAdminStatusBoard();
   
+  if (firebaseMode && adminLogged) {
+    db.ref('room/state').set('assassination');
+  }
+  
   // Find Sniper Zombie
   const sniper = players.find(p => p.role === '저격좀비');
-  const sniperColor = COLORS.find(c => c.value === sniper.color).name;
+  const sniperColor = sniper ? COLORS.find(c => c.value === sniper.color).name : '알수없음';
   
   const announcementText = "백신 개발이 거의 끝났습니다! 항체보유자가 생존해있기만 한다면 이제 좀비군단을 다시 인류로 바꿀 수 있습니다!";
   const subText = "저격좀비는 이제 정체를 밝히고 항체보유자를 찾아 암살해야 합니다. 그렇지 못하면 좀비군단의 패배입니다.";
@@ -1101,7 +1300,7 @@ function startAssassinationPhase() {
   document.getElementById('game-status-msg').innerText = "백신 완성이 코앞입니다! 저격좀비의 암살 대응 중...";
   
   // Display briefing alert on all screens
-  alertOnParticipantScreen(announcementText, subText, sniper.name, sniperColor);
+  alertOnParticipantScreen(announcementText, subText, sniper ? sniper.name : '저격좀비', sniperColor);
   
   // Trigger 30s timer
   startTimer(30, () => {
@@ -1110,9 +1309,9 @@ function startAssassinationPhase() {
   });
   
   // Determine if user is Sniper
-  const isUserSniper = (sniper.id === 0);
+  const isUserSniper = (sniper && sniper.id === (firebaseMode ? myPlayerId : 0));
   
-  if (isUserSniper) {
+  if (isUserSniper && !adminLogged) {
     // Show target selection panel to user
     setTimeout(() => {
       document.getElementById('control-assassination').classList.remove('hidden');
@@ -1120,12 +1319,15 @@ function startAssassinationPhase() {
     }, 4000);
   } else {
     document.getElementById('control-assassination').classList.add('hidden');
-    // Bot sniper automatically shoots after 6 seconds
-    setTimeout(() => {
-      if (gameState === 'assassination') {
-        botPerformAssassination();
-      }
-    }, 7000);
+    
+    if (!firebaseMode || adminLogged) {
+      // Bot sniper automatically shoots after 7 seconds
+      setTimeout(() => {
+        if (gameState === 'assassination') {
+          botPerformAssassination();
+        }
+      }, 7000);
+    }
   }
 }
 
@@ -1140,7 +1342,7 @@ function renderAssassinationTargetGrid() {
   container.innerHTML = '';
   
   // Targets are other human players (Antibody Carrier, Commander, Resistance)
-  const targets = players.filter(p => p.id !== 0); // exclude self
+  const targets = players.filter(p => p.id !== (firebaseMode ? myPlayerId : 0) && p.alliance === 'human'); // exclude self sniper, include human alliance
   
   targets.forEach(p => {
     const btn = document.createElement('button');
@@ -1174,13 +1376,18 @@ function selectAssassinationTarget(playerId) {
 }
 
 function submitAssassination() {
-  clearInterval(timerInterval);
-  document.getElementById('control-assassination').classList.add('hidden');
-  
-  const targetPlayer = players[userAssassinationTarget];
-  const isCorrect = (targetPlayer.role === '항체보유자');
-  
-  finalizeAssassination(isCorrect);
+  if (firebaseMode) {
+    db.ref('room/assassinationTarget').set(userAssassinationTarget);
+    document.getElementById('control-assassination').classList.add('hidden');
+  } else {
+    clearInterval(timerInterval);
+    document.getElementById('control-assassination').classList.add('hidden');
+    
+    const targetPlayer = players.find(p => p.id === userAssassinationTarget);
+    const isCorrect = targetPlayer && (targetPlayer.role === '항체보유자');
+    
+    finalizeAssassination(isCorrect);
+  }
 }
 
 function botPerformAssassination() {
@@ -1221,6 +1428,13 @@ function endGame(reason) {
   clearInterval(timerInterval);
   updateAdminStatusBoard();
   
+  if (firebaseMode && adminLogged) {
+    db.ref('room/endGameData').set({
+      reason: reason
+    });
+    db.ref('room/state').set('ended');
+  }
+  
   const title = document.getElementById('final-verdict-title');
   const desc = document.getElementById('final-summary-desc');
   const finalContainer = document.getElementById('revealed-final-players');
@@ -1252,11 +1466,6 @@ function endGame(reason) {
     title.style.color = 'var(--neon-red)';
     desc.innerText = "운송 작전이 너무 지연되어버렸습니다. 좀비군단이 도시로 돌격해옵니다. 막을 수 없습니다.";
   }
-  
-  // Reveal teams at the bottom based on user requests:
-  // - "인류 진영 승리 시 화면 하단에는 이번 게임에서 최후의 인류 진영이었던 모든 캐릭터가 공개되도록 해."
-  // - "항체보유자 저격 실패 시에 화면 하단에 좀비군단 진영이 아닌 최후의 인류 진영이었던 모든 캐릭터가 공개되도록 해."
-  // - "좀비군단 승리시에는 좀비군단이었던 캐릭터가 공개됩니다."
   
   const targetAlliance = (winnerAlliance === 'human') ? 'human' : 'zombie';
   const teamTitle = document.getElementById('reveal-team-title');
@@ -1300,15 +1509,32 @@ function startTimer(durationSeconds, timeoutCallback) {
   timerSec = durationSeconds;
   updateTimerDisplay();
   
-  timerInterval = setInterval(() => {
-    timerSec--;
-    updateTimerDisplay();
-    
-    if (timerSec <= 0) {
-      clearInterval(timerInterval);
-      timeoutCallback();
+  if (firebaseMode) {
+    if (adminLogged) {
+      db.ref('room/timerSec').set(timerSec);
+      timerInterval = setInterval(() => {
+        timerSec--;
+        updateTimerDisplay();
+        db.ref('room/timerSec').set(timerSec);
+        
+        if (timerSec <= 0) {
+          clearInterval(timerInterval);
+          timeoutCallback();
+        }
+      }, 1000);
     }
-  }, 1000);
+  } else {
+    // Local mode
+    timerInterval = setInterval(() => {
+      timerSec--;
+      updateTimerDisplay();
+      
+      if (timerSec <= 0) {
+        clearInterval(timerInterval);
+        timeoutCallback();
+      }
+    }, 1000);
+  }
 }
 
 function updateTimerDisplay() {
@@ -1334,7 +1560,7 @@ function startRevealRole(e) {
   if (e) e.preventDefault(); // prevent zoom on touch
   if (players.length === 0) return;
   
-  const user = players[0];
+  const user = getMyPlayer();
   
   // Set role details
   document.getElementById('revealed-role-name').innerText = user.role;
@@ -1464,8 +1690,15 @@ function renderAdminMonitor() {
       : p.name;
       
     // Cheat or admin displays the actual role (masked by default as 🔒 기밀 unless cheatMode is on)
+    let actualRole = p.role;
+    let actualAlliance = p.alliance;
+    if (firebaseMode && adminLogged && adminAssignedRoles[p.id]) {
+      actualRole = adminAssignedRoles[p.id].role;
+      actualAlliance = adminAssignedRoles[p.id].alliance;
+    }
+    
     const roleDisplay = cheatMode 
-      ? `<span class="${p.alliance === 'human' ? 'good-text' : 'bad-text'}">${p.role}</span>`
+      ? `<span class="${actualAlliance === 'human' ? 'good-text' : 'bad-text'}">${actualRole}</span>`
       : `<span style="color: var(--text-muted);">🔒 기밀</span>`;
     
     row.innerHTML = `
@@ -1553,6 +1786,14 @@ function adminResetGame() {
   selectedNominees = [];
   votes = {};
   missionVotes = [];
+  adminAssignedRoles = {};
+  
+  if (firebaseMode && adminLogged) {
+    db.ref('room').set({
+      state: 'setup',
+      playerCount: playerCount
+    });
+  }
   
   // Reset Beaker
   document.getElementById('beaker-percent').innerText = '0';
@@ -1607,40 +1848,50 @@ function adminResetGame() {
 // ==================== ADMIN LOGGER ====================
 
 function addAdminLog(text, type = '') {
-  // We can write to a dynamic logs section in Admin view or debug output
   console.log(`[LOG] ${text}`);
   
-  // If we want a console area, let's create a scrollable div inside admin main or dashboard
-  // Let's check if there is an activity log div, if not create one dynamically inside admin-main
-  let logConsole = document.getElementById('admin-log-console');
-  if (!logConsole) {
-    const parent = document.querySelector('.admin-main');
-    if (parent) {
-      const consoleCard = document.createElement('div');
-      consoleCard.className = 'admin-card';
-      consoleCard.style.marginTop = 'auto';
-      consoleCard.style.maxHeight = '140px';
-      consoleCard.style.display = 'flex';
-      consoleCard.style.flexDirection = 'column';
-      consoleCard.innerHTML = `
-        <h3 style="font-size: 0.85rem;">📝 작전 활동 로그</h3>
-        <div id="admin-log-console" style="overflow-y:auto; flex:1; font-family:'Courier New', monospace; font-size:0.75rem; color:#a0aec0; line-height:1.4; display:flex; flex-direction:column; gap:4px;"></div>
-      `;
-      parent.appendChild(consoleCard);
-      logConsole = document.getElementById('admin-log-console');
-    }
-  }
+  const time = new Date().toLocaleTimeString();
   
-  if (logConsole) {
-    const logItem = document.createElement('div');
-    if (type === 'success') logItem.style.color = 'var(--neon-green)';
-    else if (type === 'danger') logItem.style.color = 'var(--neon-red)';
-    else if (type === 'warning') logItem.style.color = '#ffb100';
+  if (firebaseMode) {
+    // Only host registers logs to prevent duplication
+    if (adminLogged) {
+      db.ref('room/logs').push({
+        time: time,
+        text: text,
+        type: type
+      });
+    }
+  } else {
+    // Local fallback
+    let logConsole = document.getElementById('admin-log-console');
+    if (!logConsole) {
+      const parent = document.querySelector('.admin-main');
+      if (parent) {
+        const consoleCard = document.createElement('div');
+        consoleCard.className = 'admin-card';
+        consoleCard.style.marginTop = 'auto';
+        consoleCard.style.maxHeight = '140px';
+        consoleCard.style.display = 'flex';
+        consoleCard.style.flexDirection = 'column';
+        consoleCard.innerHTML = `
+          <h3 style="font-size: 0.85rem;">📝 작전 활동 로그</h3>
+          <div id="admin-log-console" style="overflow-y:auto; flex:1; font-family:'Courier New', monospace; font-size:0.75rem; color:#a0aec0; line-height:1.4; display:flex; flex-direction:column; gap:4px;"></div>
+        `;
+        parent.appendChild(consoleCard);
+        logConsole = document.getElementById('admin-log-console');
+      }
+    }
     
-    const time = new Date().toLocaleTimeString();
-    logItem.innerText = `[${time}] ${text}`;
-    logConsole.appendChild(logItem);
-    logConsole.scrollTop = logConsole.scrollHeight;
+    if (logConsole) {
+      const logItem = document.createElement('div');
+      if (type === 'success') logItem.style.color = 'var(--neon-green)';
+      else if (type === 'danger') logItem.style.color = 'var(--neon-red)';
+      else if (type === 'warning') logItem.style.color = '#ffb100';
+      
+      logItem.innerText = `[${time}] ${text}`;
+      logConsole.appendChild(logItem);
+      logConsole.scrollTop = logConsole.scrollHeight;
+    }
   }
 }
 
@@ -1763,10 +2014,11 @@ function forceSetUserRole() {
   }
   
   const selectedRole = document.getElementById('test-role-select').value;
-  const previousRole = players[0].role;
+  const previousRole = getMyPlayer().role;
   
-  players[0].role = selectedRole;
-  players[0].alliance = getAlliance(selectedRole);
+  const me = getMyPlayer();
+  me.role = selectedRole;
+  me.alliance = getAlliance(selectedRole);
   
   // Re-render monitors
   renderAdminMonitor();
@@ -1911,8 +2163,693 @@ function revealAllRolesInSidebar() {
 
 // ==================== ON PAGE LOAD INITIALIZATION ====================
 
+// ==================== ON PAGE LOAD INITIALIZATION ====================
+
 window.onload = function() {
-  initLobbyGrid();
-  // Draw empty roulette
-  drawRoulette(0);
+  initFirebase();
 };
+
+// ==================== FIREBASE REALTIME MULTIPLAYER SYNC ENGINE ====================
+
+function initFirebase() {
+  fetch('firebase-config.json')
+    .then(response => {
+      if (!response.ok) throw new Error("Config not found");
+      return response.json();
+    })
+    .then(config => {
+      if (config.apiKey === "YOUR_API_KEY") {
+        console.warn("firebase-config.json contains placeholder values. Falling back to local offline mode.");
+        firebaseMode = false;
+        initLocalMode();
+        return;
+      }
+      firebase.initializeApp(config);
+      db = firebase.database();
+      firebaseMode = true;
+      
+      firebase.auth().signInAnonymously()
+        .then(userCredential => {
+          myPlayerId = userCredential.user.uid;
+          console.log("Firebase Authenticated anonymously. myPlayerId:", myPlayerId);
+          setupFirebaseListeners();
+          initLobbyGrid();
+        })
+        .catch(err => {
+          console.error("Firebase Auth failed, falling back to local mode:", err);
+          firebaseMode = false;
+          initLocalMode();
+        });
+    })
+    .catch(err => {
+      console.warn("Firebase config load failed. Running in Local Offline Mode.", err);
+      firebaseMode = false;
+      initLocalMode();
+    });
+}
+
+function initLocalMode() {
+  myPlayerId = '0';
+  firebaseMode = false;
+  initLobbyGrid();
+  drawRoulette(0);
+}
+
+// Admin helper to fill empty slots with bots
+function adminFillWithBots() {
+  if (!firebaseMode || !adminLogged) return;
+  
+  db.ref('room/players').once('value', snapshot => {
+    let currentPlayers = {};
+    if (snapshot.exists()) {
+      currentPlayers = snapshot.val();
+    }
+    
+    const count = Object.keys(currentPlayers).length;
+    if (count >= playerCount) {
+      alert("이미 설정된 인원만큼 대기실이 꽉 찼습니다.");
+      return;
+    }
+    
+    // Determine which colors are already taken
+    const takenColors = Object.values(currentPlayers).map(p => p.color);
+    const availableColors = COLORS.filter(c => !takenColors.includes(c.value)).sort(() => 0.5 - Math.random());
+    
+    const fillCount = playerCount - count;
+    for (let i = 0; i < fillCount; i++) {
+      const botId = `bot_${Math.random().toString(36).substr(2, 9)}`;
+      const botColor = availableColors[i].value;
+      const botName = `AI_${availableColors[i].name} (${count + i + 1}번)`;
+      
+      db.ref(`room/players/${botId}`).set({
+        id: botId,
+        name: botName,
+        color: botColor,
+        isLeader: false,
+        isOnline: true,
+        isBot: true
+      });
+    }
+    
+    addAdminLog(`관리자가 빈자리에 ${fillCount}명의 봇을 추가했습니다.`, 'info');
+  });
+}
+
+function updateLobbyGridFromFirebase() {
+  if (!firebaseMode) return;
+  
+  db.ref('room/players').once('value', snapshot => {
+    const list = [];
+    if (snapshot.exists()) {
+      Object.values(snapshot.val()).forEach(p => list.push(p));
+    }
+    
+    COLORS.forEach(color => {
+      const card = document.getElementById(`char-card-${color.value}`);
+      if (card) {
+        card.classList.remove('selected', 'disabled');
+        
+        // Is chosen by someone else?
+        const chosenByOther = list.find(p => p.color === color.value && p.id !== myPlayerId);
+        if (chosenByOther) {
+          card.classList.add('disabled');
+        }
+        
+        // Is chosen by me?
+        const chosenByMe = list.find(p => p.color === color.value && p.id === myPlayerId);
+        if (chosenByMe) {
+          card.classList.add('selected');
+        }
+      }
+    });
+  });
+}
+
+function setupFirebaseListeners() {
+  if (!firebaseMode) return;
+  
+  // Listen to playerCount
+  db.ref('room/playerCount').on('value', snapshot => {
+    if (snapshot.exists()) {
+      playerCount = snapshot.val();
+      document.getElementById('setup-player-count').innerText = playerCount;
+      document.getElementById('test-player-count').value = playerCount;
+      document.getElementById('player-count-val').innerText = `${playerCount}명`;
+    }
+  });
+  
+  // Listen to players list
+  db.ref('room/players').on('value', snapshot => {
+    players = [];
+    if (snapshot.exists()) {
+      Object.values(snapshot.val()).forEach(p => {
+        players.push({
+          id: p.id,
+          name: p.name,
+          color: p.color,
+          isLeader: !!p.isLeader,
+          isOnline: !!p.isOnline,
+          isBot: !!p.isBot,
+          role: p.role || '',
+          alliance: p.alliance || ''
+        });
+      });
+    }
+    
+    // Sort players array alphabetically by ID to guarantee identical indices on all clients
+    players.sort((a, b) => a.id.localeCompare(b.id));
+    
+    // Update Lobby UI
+    if (gameState === 'setup' || gameState === 'waiting_start') {
+      updateLobbyGridFromFirebase();
+    }
+    
+    // Update Admin monitor
+    renderAdminMonitor();
+    
+    // Enable/Disable admin start button based on player count matches
+    const startBtn = document.getElementById('admin-start-btn');
+    if (startBtn) {
+      startBtn.disabled = (players.length !== playerCount);
+    }
+    
+    // Update player avatar SVG if we are registered
+    const me = getMyPlayer();
+    if (me && me.color) {
+      const charName = COLORS.find(c => c.value === me.color).name;
+      const nickElem = document.getElementById('player-nickname');
+      if (nickElem) nickElem.innerText = `${me.name} (${charName})`;
+      renderPlayerAvatarSVG();
+    }
+  });
+  
+  // Listen to game state
+  db.ref('room/state').on('value', snapshot => {
+    if (snapshot.exists()) {
+      const newState = snapshot.val();
+      if (newState !== gameState) {
+        handleStateTransition(newState);
+      }
+    }
+  });
+  
+  // Listen to logs
+  db.ref('room/logs').on('child_added', snapshot => {
+    if (snapshot.exists()) {
+      const log = snapshot.val();
+      // append log locally
+      let logConsole = document.getElementById('admin-log-console');
+      if (!logConsole) {
+        const parent = document.querySelector('.admin-main');
+        if (parent) {
+          const consoleCard = document.createElement('div');
+          consoleCard.className = 'admin-card';
+          consoleCard.style.marginTop = 'auto';
+          consoleCard.style.maxHeight = '140px';
+          consoleCard.style.display = 'flex';
+          consoleCard.style.flexDirection = 'column';
+          consoleCard.innerHTML = `
+            <h3 style="font-size: 0.85rem;">📝 작전 활동 로그</h3>
+            <div id="admin-log-console" style="overflow-y:auto; flex:1; font-family:'Courier New', monospace; font-size:0.75rem; color:#a0aec0; line-height:1.4; display:flex; flex-direction:column; gap:4px;"></div>
+          `;
+          parent.appendChild(consoleCard);
+          logConsole = document.getElementById('admin-log-console');
+        }
+      }
+      if (logConsole) {
+        const logItem = document.createElement('div');
+        if (log.type === 'success') logItem.style.color = 'var(--neon-green)';
+        else if (log.type === 'danger') logItem.style.color = 'var(--neon-red)';
+        else if (log.type === 'warning') logItem.style.color = '#ffb100';
+        
+        logItem.innerText = `[${log.time}] ${log.text}`;
+        logConsole.appendChild(logItem);
+        logConsole.scrollTop = logConsole.scrollHeight;
+      }
+    }
+  });
+  
+  // Timer Sync
+  db.ref('room/timerSec').on('value', snapshot => {
+    if (snapshot.exists()) {
+      timerSec = snapshot.val();
+      updateTimerDisplay();
+    }
+  });
+  
+  // Roulette Sync
+  db.ref('room/rouletteStart').on('value', snapshot => {
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      if (Date.now() - data.timestamp < 5000) {
+        runLocalRoulette(data.randSpeed, data.winningIdx);
+      }
+    }
+  });
+  
+  // selectedNominees sync
+  db.ref('room/selectedNominees').on('value', snapshot => {
+    if (snapshot.exists()) {
+      selectedNominees = snapshot.val() || [];
+      // Render nominee list chip updates
+      const container = document.getElementById('nominated-team-list');
+      if (container) {
+        container.innerHTML = '';
+        if (selectedNominees.length === 0) {
+          container.innerHTML = '<div class="empty-nominee-slot">미편성</div>';
+        } else {
+          selectedNominees.forEach(id => {
+            const p = players.find(x => x.id === id);
+            if (p) {
+              const colorObj = COLORS.find(c => c.value === p.color);
+              const chip = document.createElement('div');
+              chip.className = 'nominee-chip';
+              chip.innerHTML = `
+                ${getCrewmateSVG(colorObj.primary, colorObj.shadow)}
+                <span>${p.name}</span>
+              `;
+              container.appendChild(chip);
+            }
+          });
+        }
+      }
+    }
+  });
+  
+  // nominationSubmitted trigger
+  db.ref('room/nominationSubmitted').on('value', snapshot => {
+    if (snapshot.exists() && snapshot.val() === true) {
+      if (!adminLogged) {
+        document.getElementById('control-nomination').classList.add('hidden');
+      }
+    }
+  });
+  
+  // voteResult Sync (4 seconds popup)
+  db.ref('room/voteResult').on('value', snapshot => {
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      
+      const msgText = data.passed 
+        ? `투표는 ${data.approves}:${data.rejects}으로 가결되었습니다. 운송대 편성이 완료되었습니다.`
+        : `투표는 ${data.approves}:${data.rejects}으로 부결되었습니다. 리더가 다음 인물로 넘어갑니다.`;
+        
+      const statusMsgField = document.getElementById('game-status-msg');
+      if (statusMsgField) {
+        if (data.passed) {
+          statusMsgField.innerHTML = `<span class="good-text" style="font-weight: bold; text-shadow: 0 0 10px var(--neon-green);">${msgText}</span>`;
+        } else {
+          statusMsgField.innerHTML = `<span class="bad-text" style="font-weight: bold; text-shadow: 0 0 10px var(--neon-red);">${msgText}</span>`;
+        }
+      }
+      
+      rejectCount = data.rejectCount;
+      const rejectDisplay = document.getElementById('admin-reject-num');
+      if (rejectDisplay) rejectDisplay.innerText = rejectCount;
+    }
+  });
+  
+  // revealedCards sync
+  db.ref('room/revealedCards').on('value', snapshot => {
+    if (snapshot.exists()) {
+      const cardVotes = snapshot.val() || [];
+      triggerClientCardRevealAnimation(cardVotes);
+    }
+  });
+  
+  // End game trigger
+  db.ref('room/endGameData').on('value', snapshot => {
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      triggerClientEndGame(data.reason);
+    }
+  });
+  
+  setupAdminDatabaseObservers();
+}
+
+function handleStateTransition(newState) {
+  gameState = newState;
+  updateAdminStatusBoard();
+  
+  document.getElementById('control-nomination').classList.add('hidden');
+  document.getElementById('control-voting').classList.add('hidden');
+  document.getElementById('control-mission').classList.add('hidden');
+  document.getElementById('control-assassination').classList.add('hidden');
+  
+  document.getElementById('player-intro-screen').classList.add('hidden');
+  document.getElementById('admin-intro-screen').classList.add('hidden');
+  document.getElementById('player-game-screen').classList.remove('hidden');
+  
+  if (newState === 'setup') {
+    document.getElementById('game-over-overlay').classList.add('hidden');
+    document.getElementById('game-over-overlay').classList.remove('win-human', 'win-zombie');
+    document.getElementById('game-timer').innerText = '--';
+    document.getElementById('beaker-percent').innerText = '0';
+    document.getElementById('vaccine-liquid-group').style.transform = 'translateY(146px)';
+    document.getElementById('admin-round-num').innerText = '1';
+    document.getElementById('admin-reject-num').innerText = '0';
+    document.getElementById('game-round-num').innerText = '1';
+    document.getElementById('game-leader-name').innerText = '--';
+    document.getElementById('nominated-team-list').innerHTML = '<div class="empty-nominee-slot">미편성</div>';
+    
+    const leaderDisplay = document.getElementById('admin-leader-name-display');
+    if (leaderDisplay) leaderDisplay.innerText = '-- 대기 중 --';
+    const avatarPlaceholder = document.getElementById('admin-leader-avatar-placeholder');
+    if (avatarPlaceholder) avatarPlaceholder.innerHTML = '';
+    
+    document.getElementById('screen-card-reveal').classList.add('hidden');
+    document.getElementById('screen-truck-panel').classList.add('hidden');
+    document.getElementById('screen-info-panel').classList.remove('hidden');
+    
+    switchView('lobby');
+    initLobbyGrid();
+  }
+  else if (newState === 'role_briefing') {
+    playIntroSequence();
+  }
+  else if (newState === 'leader_spinning') {
+    const playerOverlay = document.getElementById('player-roulette-overlay');
+    const adminOverlay = document.getElementById('admin-roulette-overlay');
+    if (playerOverlay) playerOverlay.classList.add('show');
+    if (adminOverlay) adminOverlay.classList.add('show');
+  }
+  else if (newState === 'nomination') {
+    document.getElementById('screen-card-reveal').classList.add('hidden');
+    document.getElementById('screen-truck-panel').classList.add('hidden');
+    document.getElementById('screen-info-panel').classList.remove('hidden');
+    
+    db.ref(`room/privateRoles/${myPlayerId}`).once('value', roleSnap => {
+      if (roleSnap.exists()) {
+        const roleData = roleSnap.val();
+        const me = getMyPlayer();
+        if (me) {
+          me.role = roleData.role;
+          me.alliance = roleData.alliance;
+        }
+      }
+      
+      db.ref('room/currentRound').once('value', roundSnap => {
+        if (roundSnap.exists()) {
+          currentRound = roundSnap.val();
+          document.getElementById('admin-round-num').innerText = currentRound;
+          document.getElementById('game-round-num').innerText = currentRound;
+        }
+        
+        db.ref('room/leaderIdx').once('value', leaderSnap => {
+          if (leaderSnap.exists()) {
+            currentPhaseLeader = leaderSnap.val();
+            const leader = players[currentPhaseLeader];
+            if (leader) {
+              const colorObj = COLORS.find(c => c.value === leader.color);
+              document.getElementById('game-leader-name').innerText = `${leader.name} (${colorObj.name})`;
+              
+              const leaderDisplay = document.getElementById('admin-leader-name-display');
+              if (leaderDisplay) {
+                leaderDisplay.innerText = `${leader.name} (${colorObj.name})`;
+                leaderDisplay.style.color = colorObj.primary;
+              }
+              const avatarPlaceholder = document.getElementById('admin-leader-avatar-placeholder');
+              if (avatarPlaceholder) {
+                avatarPlaceholder.innerHTML = getCrewmateSVG(colorObj.primary, colorObj.shadow);
+              }
+              
+              const isUserLeader = (leader.id === myPlayerId);
+              if (isUserLeader && !adminLogged) {
+                const teamSizes = GAS.getTeamSizes(playerCount);
+                const sizeRequired = teamSizes[currentRound - 1];
+                document.getElementById('control-nomination').classList.remove('hidden');
+                document.getElementById('req-team-size').innerText = sizeRequired;
+                renderNominationSelectorGrid(sizeRequired);
+              }
+            }
+          }
+        });
+      });
+    });
+  }
+  else if (newState === 'voting') {
+    document.getElementById('vote-submitted-status').innerText = '';
+    document.getElementById('game-status-msg').innerText = "지명된 운송대 명단에 대한 찬성/반대 투표가 진행 중입니다.";
+    
+    if (!adminLogged) {
+      document.getElementById('control-voting').classList.remove('hidden');
+    }
+  }
+  else if (newState === 'mission_depart') {
+    document.getElementById('screen-info-panel').classList.add('hidden');
+    document.getElementById('screen-truck-panel').classList.remove('hidden');
+    document.getElementById('game-status-msg').innerText = "운송대가 백신 연구소로 출발했습니다!";
+  }
+  else if (newState === 'mission_action') {
+    document.getElementById('mission-submitted-status').innerText = '';
+    
+    const isOnTeam = selectedNominees.includes(myPlayerId);
+    if (isOnTeam && !adminLogged) {
+      document.getElementById('control-mission').classList.remove('hidden');
+      const me = getMyPlayer();
+      const isHuman = (me.alliance === 'human');
+      document.getElementById('mission-fail-btn').disabled = isHuman;
+    } else {
+      document.getElementById('control-mission').classList.add('hidden');
+      document.getElementById('game-status-msg').innerText = "지명된 운송대원들이 백신 수송 카드를 제출하고 있습니다.";
+    }
+  }
+  else if (newState === 'assassination') {
+    const sniper = players.find(p => p.role === '저격좀비');
+    if (sniper) {
+      const sniperColor = COLORS.find(c => c.value === sniper.color).name;
+      alertOnParticipantScreen(
+        "백신 개발이 거의 끝났습니다! 항체보유자가 생존해있기만 한다면 이제 좀비군단을 다시 인류로 바꿀 수 있습니다!",
+        "저격좀비는 이제 정체를 밝히고 항체보유자를 찾아 암살해야 합니다. 그렇지 못하면 좀비군단의 패배입니다.",
+        sniper.name,
+        sniperColor
+      );
+      
+      const isUserSniper = (sniper.id === myPlayerId);
+      if (isUserSniper && !adminLogged) {
+        setTimeout(() => {
+          document.getElementById('control-assassination').classList.remove('hidden');
+          renderAssassinationTargetGrid();
+        }, 4000);
+      }
+    }
+  }
+}
+
+function runLocalRoulette(randSpeed, winningIdx) {
+  rouletteAngle = 0;
+  rouletteSpeed = randSpeed;
+  rouletteTargetIdx = winningIdx;
+  rouletteAnimating = true;
+  
+  const winTextPlayer = document.getElementById('roulette-winner-text-player');
+  const winTextAdmin = document.getElementById('roulette-winner-text-admin');
+  if (winTextPlayer) winTextPlayer.innerText = "회전 중...";
+  if (winTextAdmin) winTextAdmin.innerText = "회전 중...";
+  
+  animateSyncRoulette();
+}
+
+function animateSyncRoulette() {
+  if (!rouletteAnimating) return;
+  
+  rouletteAngle += rouletteSpeed;
+  rouletteSpeed *= 0.98;
+  
+  drawRoulette(rouletteAngle);
+  
+  if (rouletteSpeed < 0.002) {
+    rouletteAnimating = false;
+    rouletteSpeed = 0;
+    
+    const leaderPlayer = players[rouletteTargetIdx];
+    if (leaderPlayer) {
+      const colorObj = COLORS.find(c => c.value === leaderPlayer.color);
+      const winTextPlayer = document.getElementById('roulette-winner-text-player');
+      const winTextAdmin = document.getElementById('roulette-winner-text-admin');
+      if (winTextPlayer) winTextPlayer.innerText = `선정됨: ${leaderPlayer.name}`;
+      if (winTextAdmin) winTextAdmin.innerText = `선정됨: ${leaderPlayer.name}`;
+      
+      document.getElementById('game-leader-name').innerText = `${leaderPlayer.name} (${colorObj.name})`;
+      
+      const leaderDisplay = document.getElementById('admin-leader-name-display');
+      if (leaderDisplay) {
+        leaderDisplay.innerText = `${leaderPlayer.name} (${colorObj.name})`;
+        leaderDisplay.style.color = colorObj.primary;
+      }
+      const avatarPlaceholder = document.getElementById('admin-leader-avatar-placeholder');
+      if (avatarPlaceholder) {
+        avatarPlaceholder.innerHTML = getCrewmateSVG(colorObj.primary, colorObj.shadow);
+      }
+      
+      renderAdminMonitor();
+      
+      setTimeout(() => {
+        const playerOverlay = document.getElementById('player-roulette-overlay');
+        const adminOverlay = document.getElementById('admin-roulette-overlay');
+        if (playerOverlay) playerOverlay.classList.remove('show');
+        if (adminOverlay) adminOverlay.classList.remove('show');
+      }, 2000);
+    }
+  } else {
+    requestAnimationFrame(animateSyncRoulette);
+  }
+}
+
+function triggerClientCardRevealAnimation(cardVotes) {
+  gameState = 'mission_reveal';
+  updateAdminStatusBoard();
+  
+  document.getElementById('control-mission').classList.add('hidden');
+  document.getElementById('screen-truck-panel').classList.add('hidden');
+  document.getElementById('screen-card-reveal').classList.remove('hidden');
+  document.getElementById('mission-result-text').innerText = '';
+  
+  const container = document.getElementById('revealed-cards-container');
+  if (container) {
+    container.innerHTML = '';
+    
+    const shuffled = [...cardVotes].sort(() => 0.5 - Math.random());
+    shuffled.forEach(v => {
+      const cardDiv = document.createElement('div');
+      cardDiv.className = 'reveal-card card-shake';
+      cardDiv.innerHTML = `
+        <div class="card-face card-back"></div>
+        <div class="card-face card-front ${v ? 'success' : 'fail'}">${v ? '운송 성공' : '좀비 피습'}</div>
+      `;
+      container.appendChild(cardDiv);
+    });
+    
+    setTimeout(() => {
+      document.querySelectorAll('.reveal-card').forEach(card => {
+        card.classList.remove('card-shake');
+        card.classList.add('card-flipped');
+      });
+    }, 3000);
+  }
+}
+
+function triggerClientEndGame(reason) {
+  gameState = 'ended';
+  updateAdminStatusBoard();
+  
+  const title = document.getElementById('final-verdict-title');
+  const desc = document.getElementById('final-summary-desc');
+  const finalContainer = document.getElementById('revealed-final-players');
+  if (finalContainer) finalContainer.innerHTML = '';
+  
+  let winnerAlliance = '';
+  
+  if (reason === 'zombie_assassinated') {
+    winnerAlliance = 'zombie';
+    title.innerText = "좀비군단 승리";
+    title.style.color = 'var(--neon-red)';
+    desc.innerText = "저격좀비의 암살이 성공했습니다! 항체보유자가 사망했습니다. 백신의 추가 제작은 이제 불가능합니다.";
+  } 
+  else if (reason === 'human_survived') {
+    winnerAlliance = 'human';
+    title.innerText = "인류진영 승리";
+    title.style.color = 'var(--neon-cyan)';
+    desc.innerText = "항체보유자의 혈액으로 좀비를 정화시킬 백신이 무한정 생성됩니다. 좀비군단의 수가 압도적으로 줄어듭니다.";
+  } 
+  else if (reason === 'zombie_fails') {
+    winnerAlliance = 'zombie';
+    title.innerText = "좀비군단 승리";
+    title.style.color = 'var(--neon-red)';
+    desc.innerText = "백신연구소로 혈액을 운송할 차량이 모두 파괴되었습니다. 백신 개발은 영영 불가능해졌습니다.";
+  } 
+  else if (reason === 'zombie_rejections') {
+    winnerAlliance = 'zombie';
+    title.innerText = "좀비군단 승리";
+    title.style.color = 'var(--neon-red)';
+    desc.innerText = "운송 작전이 너무 지연되어버렸습니다. 좀비군단이 도시로 돌격해옵니다. 막을 수 없습니다.";
+  }
+  
+  const targetAlliance = (winnerAlliance === 'human') ? 'human' : 'zombie';
+  const teamTitle = document.getElementById('reveal-team-title');
+  if (teamTitle) {
+    teamTitle.innerText = (targetAlliance === 'human') 
+      ? "최후의 인류 진영 명단 공개" 
+      : "좀비군단 진영 명단 공개";
+  }
+  
+  const revealedPlayers = players.filter(p => p.alliance === targetAlliance);
+  revealedPlayers.forEach(p => {
+    const colorObj = COLORS.find(c => c.value === p.color);
+    const chip = document.createElement('div');
+    chip.className = 'final-chip';
+    chip.innerHTML = `
+      ${getCrewmateSVG(colorObj.primary, colorObj.shadow)}
+      <span><strong>${p.name}</strong> (${p.role})</span>
+    `;
+    if (finalContainer) finalContainer.appendChild(chip);
+  });
+  
+  const overlay = document.getElementById('game-over-overlay');
+  if (overlay) {
+    overlay.classList.remove('hidden');
+    if (winnerAlliance === 'human') {
+      overlay.classList.add('win-human');
+      overlay.classList.remove('win-zombie');
+    } else {
+      overlay.classList.add('win-zombie');
+      overlay.classList.remove('win-human');
+    }
+  }
+}
+
+function setupAdminDatabaseObservers() {
+  if (!firebaseMode || !adminLogged) return;
+  
+  console.log("Setting up Admin database observers...");
+  
+  db.ref('room/votes').on('value', snapshot => {
+    if (gameState !== 'voting') return;
+    
+    const currentVotes = snapshot.val() || {};
+    players.forEach(p => {
+      if (currentVotes[p.id] !== undefined) {
+        votes[p.id] = currentVotes[p.id];
+      }
+    });
+    
+    const totalVotes = Object.keys(votes).length;
+    if (totalVotes === playerCount) {
+      clearInterval(timerInterval);
+      tallyVotes();
+    }
+  });
+  
+  db.ref('room/missionVotes').on('value', snapshot => {
+    if (gameState !== 'mission_action') return;
+    
+    const currentMissions = snapshot.val() || {};
+    missionVotes = [];
+    
+    selectedNominees.forEach(id => {
+      if (currentMissions[id] !== undefined) {
+        missionVotes.push({ playerId: id, card: currentMissions[id] });
+      }
+    });
+    
+    const required = selectedNominees.length;
+    if (missionVotes.length === required) {
+      clearInterval(timerInterval);
+      revealMissionCards();
+    }
+  });
+  
+  db.ref('room/assassinationTarget').on('value', snapshot => {
+    if (gameState !== 'assassination') return;
+    if (snapshot.exists()) {
+      clearInterval(timerInterval);
+      const targetId = snapshot.val();
+      const targetPlayer = players.find(p => p.id === targetId);
+      if (targetPlayer) {
+        const isCorrect = (targetPlayer.role === '항체보유자');
+        finalizeAssassination(isCorrect);
+      }
+    }
+  });
+}
