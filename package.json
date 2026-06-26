@@ -1,0 +1,11 @@
+{
+  "name": "vaccine-last-mission",
+  "version": "1.0.0",
+  "description": "최후의 미션: 백신 개발 - 웹 기반 마피아 시뮬레이션 게임",
+  "main": "index.html",
+  "scripts": {
+    "dev": "npx -y http-server -p 8080"
+  },
+  "author": "Antigravity",
+  "license": "ISC"
+}
