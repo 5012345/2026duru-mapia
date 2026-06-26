@@ -1214,7 +1214,7 @@ function tallyMissionResults() {
   const beakerPercentElem = document.getElementById('beaker-percent');
   if (beakerPercentElem) beakerPercentElem.innerText = beakerPercent;
   
-  const liquidTranslate = 146 - (vaccineSuccesses * 48); // 146 -> 98 -> 50 -> 2
+  const liquidTranslate = 180 - (vaccineSuccesses * 60); // 180 -> 120 -> 60 -> 0
   const liquidGroup = document.getElementById('vaccine-liquid-group');
   if (liquidGroup) liquidGroup.style.transform = `translateY(${Math.max(0, liquidTranslate)}px)`;
   
@@ -1797,7 +1797,7 @@ function adminResetGame() {
   
   // Reset Beaker
   document.getElementById('beaker-percent').innerText = '0';
-  document.getElementById('vaccine-liquid-group').style.transform = 'translateY(146px)';
+  document.getElementById('vaccine-liquid-group').style.transform = 'translateY(180px)';
   
   // Reset UI components
   document.getElementById('admin-round-num').innerText = '1';
@@ -2506,7 +2506,7 @@ function handleStateTransition(newState) {
     document.getElementById('game-over-overlay').classList.remove('win-human', 'win-zombie');
     document.getElementById('game-timer').innerText = '--';
     document.getElementById('beaker-percent').innerText = '0';
-    document.getElementById('vaccine-liquid-group').style.transform = 'translateY(146px)';
+    document.getElementById('vaccine-liquid-group').style.transform = 'translateY(180px)';
     document.getElementById('admin-round-num').innerText = '1';
     document.getElementById('admin-reject-num').innerText = '0';
     document.getElementById('game-round-num').innerText = '1';
