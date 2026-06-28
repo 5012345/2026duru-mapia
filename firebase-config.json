@@ -1,7 +1,7 @@
 {
   "apiKey": "AIzaSyBSNx9lGBAlMB8wmDZsV0WgvvqrHgwp4-8",
   "authDomain": "duru-mapia.firebaseapp.com",
-  
+  "databaseURL": "https://duru-mapia-default-rtdb.asia-southeast1.firebasedatabase.app/",
   "projectId": "duru-mapia",
   "storageBucket": "duru-mapia.firebasestorage.app",
   "messagingSenderId": "697867580760",

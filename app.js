@@ -203,6 +203,7 @@ function adjustSetupPlayers(dir) {
       selectLobbyColor(userSelectedColor);
     }
   }
+  updateAdminStartButtonState();
 }
 
 // ==================== VIEW HANDLING ====================
@@ -238,6 +239,7 @@ function switchView(viewName) {
   if (viewName === 'admin') {
     // Redraw roulette
     drawRoulette(rouletteAngle);
+    updateAdminStartButtonState();
   }
 }
 
@@ -385,6 +387,7 @@ function startGameFromLobby() {
     
     renderAdminMonitor();
     updateAdminStatusBoard();
+    updateAdminStartButtonState();
   }
 }
 
@@ -2193,6 +2196,12 @@ function initFirebase() {
         initLocalMode();
         return;
       }
+      
+      // databaseURL이 누락되어 있을 경우 프로젝트 ID 기반으로 유추하여 채워줌
+      if (!config.databaseURL && config.projectId) {
+        config.databaseURL = `https://${config.projectId}-default-rtdb.firebaseio.com/`;
+      }
+      
       firebase.initializeApp(config);
       db = firebase.database();
       firebaseMode = true;
@@ -2201,8 +2210,32 @@ function initFirebase() {
         .then(userCredential => {
           myPlayerId = userCredential.user.uid;
           console.log("Firebase Authenticated anonymously. myPlayerId:", myPlayerId);
-          setupFirebaseListeners();
-          initLobbyGrid();
+          
+          // 실시간 데이터베이스 연결 헬스체크 (2.5초 타임아웃)
+          let dbCheckPassed = false;
+          const dbCheckTimeout = setTimeout(() => {
+            if (!dbCheckPassed) {
+              console.warn("Firebase Database connection timeout. Falling back to local offline mode.");
+              firebaseMode = false;
+              initLocalMode();
+            }
+          }, 2500);
+          
+          db.ref('room/state').once('value')
+            .then(() => {
+              dbCheckPassed = true;
+              clearTimeout(dbCheckTimeout);
+              console.log("Firebase Database connection successful.");
+              setupFirebaseListeners();
+              initLobbyGrid();
+            })
+            .catch(dbErr => {
+              dbCheckPassed = true;
+              clearTimeout(dbCheckTimeout);
+              console.error("Firebase Database connection failed. Falling back to local offline mode:", dbErr);
+              firebaseMode = false;
+              initLocalMode();
+            });
         })
         .catch(err => {
           console.error("Firebase Auth failed, falling back to local mode:", err);
@@ -2222,6 +2255,19 @@ function initLocalMode() {
   firebaseMode = false;
   initLobbyGrid();
   drawRoulette(0);
+  updateAdminStartButtonState();
+}
+
+function updateAdminStartButtonState() {
+  const startBtn = document.getElementById('admin-start-btn');
+  if (!startBtn) return;
+  
+  if (firebaseMode) {
+    startBtn.disabled = (players.length !== playerCount);
+  } else {
+    // 로컬 모드에서는 셋업 혹은 대기 상태일 때 관리자 게임 시작 버튼을 활성화
+    startBtn.disabled = (gameState !== 'setup' && gameState !== 'waiting_start');
+  }
 }
 
 // Admin helper to fill empty slots with bots
@@ -2345,10 +2391,7 @@ function setupFirebaseListeners() {
     renderAdminMonitor();
     
     // Enable/Disable admin start button based on player count matches
-    const startBtn = document.getElementById('admin-start-btn');
-    if (startBtn) {
-      startBtn.disabled = (players.length !== playerCount);
-    }
+    updateAdminStartButtonState();
     
     // Update player avatar SVG if we are registered
     const me = getMyPlayer();
