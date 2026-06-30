@@ -730,20 +730,63 @@ h1, h2, h3, h4, .font-tech {
 
 /* ==================== PLAYER VIEW LAYOUT ==================== */
 .player-game-layout {
-  display: grid;
-  grid-template-columns: 1fr 340px;
-  gap: 20px;
-  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
   width: 100%;
   height: calc(100vh - 60px);
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
-@media (max-width: 850px) {
-  .player-game-layout {
-    grid-template-columns: 1fr;
-    height: auto;
-    overflow-y: auto;
-  }
+/* Participant Tab Header & Buttons */
+.player-tabs-header {
+  display: flex;
+  gap: 8px;
+  border-bottom: 2px solid var(--border-color);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+  flex-shrink: 0;
+}
+.p-tab-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-family: 'Orbitron', 'Noto Sans KR', sans-serif;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+.p-tab-btn:hover {
+  background: rgba(0, 240, 255, 0.1);
+  color: #fff;
+}
+.p-tab-btn.active {
+  background: var(--neon-cyan);
+  color: #000;
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
+  font-weight: bold;
+}
+.player-tab-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.player-tab-content.active {
+  display: flex;
+}
+
+.player-main-board {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  overflow: hidden;
 }
 
 .player-main-board {
@@ -847,14 +890,14 @@ h1, h2, h3, h4, .font-tech {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  padding: 20px;
+  padding: 12px; /* 20px -> 12px */
 }
 
 .board-main-screen {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 10px; /* 15px -> 10px */
   justify-content: space-between;
 }
 
@@ -863,7 +906,7 @@ h1, h2, h3, h4, .font-tech {
   align-items: center;
   gap: 15px;
   border-bottom: 1px solid var(--border-color);
-  padding-bottom: 10px;
+  padding-bottom: 8px; /* 10px -> 8px */
 }
 .round-badge {
   background: rgba(0, 240, 255, 0.1);
@@ -884,14 +927,14 @@ h1, h2, h3, h4, .font-tech {
   background: #090a0e;
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 20px;
+  padding: 12px; /* 20px -> 12px */
   flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   position: relative;
-  min-height: 220px;
+  min-height: 140px; /* 220px -> 140px */
 }
 
 .info-panel {
@@ -900,12 +943,12 @@ h1, h2, h3, h4, .font-tech {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 15px;
+  gap: 10px; /* 15px -> 10px */
 }
 .leader-info {
-  font-size: 1.1rem;
+  font-size: 1.0rem; /* 1.1rem -> 1.0rem */
   border-bottom: 1px dashed var(--border-color);
-  padding-bottom: 10px;
+  padding-bottom: 6px; /* 10px -> 6px */
 }
 .leader-info strong {
   color: var(--neon-cyan);
@@ -918,10 +961,10 @@ h1, h2, h3, h4, .font-tech {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 12px;
+  gap: 8px; /* 12px -> 8px */
 }
 .nomination-status h3 {
-  font-size: 0.9rem;
+  font-size: 0.85rem; /* 0.9rem -> 0.85rem */
   color: var(--text-muted);
   text-transform: uppercase;
 }

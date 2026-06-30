@@ -889,8 +889,12 @@ function botCastVote(bot) {
     }
   }
   
-  votes[bot.id] = approve;
-  checkAllVotesCast();
+  if (firebaseMode) {
+    db.ref(`room/votes/${bot.id}`).set(approve);
+  } else {
+    votes[bot.id] = approve;
+    checkAllVotesCast();
+  }
 }
 
 function castVote(approve) {
@@ -2911,4 +2915,27 @@ function setupAdminDatabaseObservers() {
       }
     }
   });
+}
+
+function switchPlayerTab(tabName) {
+  // 탭 버튼 active 클래스 갱신
+  const tabGame = document.getElementById('p-tab-game');
+  const tabRules = document.getElementById('p-tab-rules');
+  if (tabGame) tabGame.classList.remove('active');
+  if (tabRules) tabRules.classList.remove('active');
+  
+  const activeTabBtn = document.getElementById(`p-tab-${tabName}`);
+  if (activeTabBtn) activeTabBtn.classList.add('active');
+  
+  // 탭 콘텐츠 display 갱신
+  const gameContent = document.getElementById('p-content-game');
+  const rulesContent = document.getElementById('p-content-rules');
+  
+  if (tabName === 'game') {
+    if (gameContent) gameContent.style.display = 'flex';
+    if (rulesContent) rulesContent.style.display = 'none';
+  } else {
+    if (gameContent) gameContent.style.display = 'none';
+    if (rulesContent) rulesContent.style.display = 'block';
+  }
 }

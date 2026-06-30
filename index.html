@@ -282,197 +282,208 @@
 
     <!-- 2. Main Participant Game Screen -->
     <div id="player-game-screen" class="player-game-layout hidden">
-      <!-- Main Game Board (Left Column) -->
-      <section class="player-main-board">
-        
-        <!-- Header with Avatar and Timer -->
-        <div class="player-header-card">
-          <!-- Hold-to-Reveal Avatar Button -->
-          <div class="avatar-info-container">
-            <div class="avatar-wrapper" 
-                 id="player-avatar-btn" 
-                 onmousedown="startRevealRole()" 
-                 onmouseup="endRevealRole()" 
-                 onmouseleave="endRevealRole()"
-                 ontouchstart="startRevealRole(event)"
-                 ontouchend="endRevealRole(event)">
-              <div id="player-avatar-svg-placeholder"></div>
-              <div class="hold-hint">HOLD</div>
-            </div>
-            <div class="player-profile-text">
-              <span id="player-nickname">Player (나)</span>
-              <span class="hold-text-tip">← 아이콘을 꾹 누르고 있으면 내 역할군 정보 노출</span>
-            </div>
-          </div>
+      <!-- Participant Tabs Header -->
+      <div class="player-tabs-header">
+        <button id="p-tab-game" class="p-tab-btn active" onclick="switchPlayerTab('game')">🎮 게임 화면</button>
+        <button id="p-tab-rules" class="p-tab-btn" onclick="switchPlayerTab('rules')">📜 임무 및 역할 명세</button>
+      </div>
 
-          <!-- Timer Display -->
-          <div class="player-timer-display">
-            <div class="timer-box">
-              <span class="timer-label">제한시간</span>
-              <span id="game-timer" class="timer-countdown">--</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Central Action Area -->
-        <div class="player-card board-main-screen">
-          <div class="screen-header">
-            <span class="round-badge">Round <span id="game-round-num">1</span></span>
-            <span class="status-msg" id="game-status-msg">대기 중...</span>
-          </div>
-
-          <!-- Screen Central Panel (Truck, Nominees, Voting info) -->
-          <div class="screen-content-display">
-            <!-- Normal game info display -->
-            <div id="screen-info-panel" class="info-panel">
-              <div class="leader-info">
-                <span>이번 라운드 리더:</span>
-                <strong id="game-leader-name">--</strong>
+      <!-- Tab Content: Game Screen -->
+      <div class="player-tab-content active" id="p-content-game">
+        <!-- Main Game Board (Left Column) -->
+        <section class="player-main-board" style="flex: 1; display: flex; flex-direction: column;">
+          
+          <!-- Header with Avatar and Timer -->
+          <div class="player-header-card">
+            <!-- Hold-to-Reveal Avatar Button -->
+            <div class="avatar-info-container">
+              <div class="avatar-wrapper" 
+                   id="player-avatar-btn" 
+                   onmousedown="startRevealRole()" 
+                   onmouseup="endRevealRole()" 
+                   onmouseleave="endRevealRole()"
+                   ontouchstart="startRevealRole(event)"
+                   ontouchend="endRevealRole(event)">
+                <div id="player-avatar-svg-placeholder"></div>
+                <div class="hold-hint">HOLD</div>
               </div>
-              <div class="nomination-status">
-                <h3>운송대원 편성 명단</h3>
-                <div id="nominated-team-list" class="team-list">
-                  <div class="empty-nominee-slot">미편성</div>
+              <div class="player-profile-text">
+                <span id="player-nickname">Player (나)</span>
+                <span class="hold-text-tip">← 아이콘을 꾹 누르고 있으면 내 역할군 정보 노출</span>
+              </div>
+            </div>
+
+            <!-- Timer Display -->
+            <div class="player-timer-display">
+              <div class="timer-box">
+                <span class="timer-label">제한시간</span>
+                <span id="game-timer" class="timer-countdown">--</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Central Action Area -->
+          <div class="player-card board-main-screen">
+            <div class="screen-header">
+              <span class="round-badge">Round <span id="game-round-num">1</span></span>
+              <span class="status-msg" id="game-status-msg">대기 중...</span>
+            </div>
+
+            <!-- Screen Central Panel (Truck, Nominees, Voting info) -->
+            <div class="screen-content-display">
+              <!-- Normal game info display -->
+              <div id="screen-info-panel" class="info-panel">
+                <div class="leader-info">
+                  <span>이번 라운드 리더:</span>
+                  <strong id="game-leader-name">--</strong>
+                </div>
+                <div class="nomination-status">
+                  <h3>운송대원 편성 명단</h3>
+                  <div id="nominated-team-list" class="team-list">
+                    <div class="empty-nominee-slot">미편성</div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <!-- Truck departure view (Visible when mission starts) -->
-            <div id="screen-truck-panel" class="truck-panel hidden">
-              <img src="assets/photo_3.png" alt="Truck Departure" class="truck-img">
-              <p class="truck-narrative">
-                "운송대가 출발하였습니다. 이제 운송대가 백신 연구소까지 가는 동안 좀비들의 피습을 받을지, 무사히 백신 연구소에 도착할지는 운송대원들의 판단에 달렸습니다."
-              </p>
-            </div>
-            
-            <!-- Result/Reveal Card Screen -->
-            <div id="screen-card-reveal" class="card-reveal-panel hidden">
-              <h3>운송 결과 확인</h3>
-              <div id="revealed-cards-container" class="cards-flex">
-                <!-- Dynamic cards with shake & flip animations -->
+              <!-- Truck departure view (Visible when mission starts) -->
+              <div id="screen-truck-panel" class="truck-panel hidden">
+                <img src="assets/photo_3.png" alt="Truck Departure" class="truck-img">
+                <p class="truck-narrative">
+                  "운송대가 출발하였습니다. 이제 운송대가 백신 연구소까지 가는 동안 좀비들의 피습을 받을지, 무사히 백신 연구소에 도착할지는 운송대원들의 판단에 달렸습니다."
+                </p>
               </div>
-              <div id="mission-result-text" class="winner-text"></div>
-            </div>
-          </div>
-
-          <!-- Bottom Control Panel for Player Action Buttons -->
-          <div class="player-action-panel">
-            <!-- A. Leader Nomination Panel -->
-            <div id="control-nomination" class="control-group-panel hidden">
-              <p>운송대원을 지명하십시오. (<span id="req-team-size">2</span>명 필요)</p>
-              <div id="nomination-selector-grid" class="nomination-grid">
-                <!-- Choice elements for players -->
-              </div>
-              <button id="nominate-submit-btn" class="btn btn-primary" onclick="submitNomination()" disabled>운송대 편성 완료</button>
-            </div>
-
-            <!-- B. Approval/Rejection Voting Panel -->
-            <div id="control-voting" class="control-group-panel hidden">
-              <p>운송대 명단 편성에 동의하십니까?</p>
-              <div class="voting-buttons flex-row">
-                <button class="btn btn-success btn-vote" onclick="castVote(true)">찬성 (Approve)</button>
-                <button class="btn btn-danger btn-vote" onclick="castVote(false)">반대 (Reject)</button>
-              </div>
-              <div id="vote-submitted-status" class="vote-status-text"></div>
-            </div>
-
-            <!-- C. Mission Success/Sabotage Card Panel -->
-            <div id="control-mission" class="control-group-panel hidden">
-              <p>운송 임무를 수행하십시오. (인류 진영은 좀비 피습 선택 불가)</p>
-              <div class="mission-buttons flex-row">
-                <button id="mission-success-btn" class="btn btn-success btn-mission" onclick="submitMissionCard(true)">운송 성공</button>
-                <button id="mission-fail-btn" class="btn btn-danger btn-mission" onclick="submitMissionCard(false)">좀비 피습</button>
-              </div>
-              <div id="mission-submitted-status" class="vote-status-text"></div>
-            </div>
-
-            <!-- D. Final Assassination Screen (For Sniper Zombie only) -->
-            <div id="control-assassination" class="control-group-panel hidden">
-              <p class="warning-text">🎯 항체보유자를 찾아 저격하십시오! 틀리면 인류의 승리입니다.</p>
-              <div id="assassination-target-grid" class="nomination-grid">
-                <!-- Player targets -->
-              </div>
-              <button id="assassinate-submit-btn" class="btn btn-danger" onclick="submitAssassination()" disabled>저격 실행</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Role Overlay Panel (Hold to Reveal Popup) -->
-        <div id="role-reveal-overlay" class="role-overlay hidden">
-          <div class="role-reveal-content">
-            <h2 id="revealed-role-name">역할명</h2>
-            <div class="role-alliance-tag" id="revealed-role-alliance">소속 진영</div>
-            <p class="role-desc" id="revealed-role-desc">상세 설명</p>
-            <div class="role-secret-info" id="revealed-role-secrets">
-              <!-- Secret info visible only to specific roles -->
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Rules Sidebar Document (Right Column) -->
-      <aside class="player-rules-sidebar">
-        <div class="rules-card">
-          <h3 class="rules-header">📜 임무 명세 및 역할 정보</h3>
-          <div class="rules-scroll-body">
-            
-            <section class="rules-section">
-              <h4>🛡️ 기본 게임 개요</h4>
-              <p>본 게임은 연구소로 백신 혈액을 이송하기 위한 인류와 이를 방해해 좀비로 감염시키려는 좀비 군단 간의 대립입니다. 3회의 백신 이송에 성공하면 인류 진영이 최종 승리 후보가 되며, 3회의 좀비 피습이 발생하거나 5회의 투표가 부결되면 좀비 군단이 최종 승리합니다.</p>
-            </section>
-
-            <section class="rules-section">
-              <h4>👥 최후의 인류 진영 (Good)</h4>
               
-              <div class="role-detail-box good-border">
-                <strong class="good-text">🧪 항체보유자</strong>
-                <p>최후의 인류 진영. 몰래 잠입한 좀비들이 누군지 게임 시작단계에서 알 수 있습니다. 단, <strong>은신좀비</strong>의 정체는 알 수 없으며 게임 종료 직전 <strong>저격좀비</strong>에게 정체가 들키면 암살당해 좀비진영이 최종 승리합니다.</p>
+              <!-- Result/Reveal Card Screen -->
+              <div id="screen-card-reveal" class="card-reveal-panel hidden">
+                <h3>운송 결과 확인</h3>
+                <div id="revealed-cards-container" class="cards-flex">
+                  <!-- Dynamic cards with shake & flip animations -->
+                </div>
+                <div id="mission-result-text" class="winner-text"></div>
+              </div>
+            </div>
+
+            <!-- Bottom Control Panel for Player Action Buttons -->
+            <div class="player-action-panel">
+              <!-- A. Leader Nomination Panel -->
+              <div id="control-nomination" class="control-group-panel hidden">
+                <p>운송대원을 지명하십시오. (<span id="req-team-size">2</span>명 필요)</p>
+                <div id="nomination-selector-grid" class="nomination-grid">
+                  <!-- Choice elements for players -->
+                </div>
+                <button id="nominate-submit-btn" class="btn btn-primary" onclick="submitNomination()" disabled>운송대 편성 완료</button>
               </div>
 
-              <div class="role-detail-box good-border">
-                <strong class="good-text">🛡️ 총사령관</strong>
-                <p>최후의 인류 진영. 게임 시작단계에서 항체보유자가 누구인지 확인합니다. 다만, <strong>위장좀비</strong>도 항체보유자 후보로 함께 노출되므로, 두 명 중 진짜를 가려내어 운송대에 배치해야 합니다.</p>
+              <!-- B. Approval/Rejection Voting Panel -->
+              <div id="control-voting" class="control-group-panel hidden">
+                <p>운송대 명단 편성에 동의하십니까?</p>
+                <div class="voting-buttons flex-row">
+                  <button class="btn btn-success btn-vote" onclick="castVote(true)">찬성 (Approve)</button>
+                  <button class="btn btn-danger btn-vote" onclick="castVote(false)">반대 (Reject)</button>
+                </div>
+                <div id="vote-submitted-status" class="vote-status-text"></div>
               </div>
 
-              <div class="role-detail-box good-border">
-                <strong class="good-text">🔧 저항군</strong>
-                <p>최후의 인류 진영. 별도의 특수 능력은 없습니다. 리더의 배치를 신중히 투표하고 미션 성공을 도와 백신을 완성시켜야 합니다.</p>
-              </div>
-            </section>
-
-            <section class="rules-section">
-              <h4>🧟 좀비군단 진영 (Bad)</h4>
-
-              <div class="role-detail-box bad-border">
-                <strong class="bad-text">🎯 저격좀비</strong>
-                <p>좀비군단 진영. 인류 진영이 백신 개발(3승)에 거의 성공했을 때 정체를 밝힙니다. 인류 진영의 <strong>항체보유자</strong>가 누구인지 알아내어 최종 지목(암살) 성공 시 좀비 진영으로 전세를 뒤집어 역전승합니다.</p>
+              <!-- C. Mission Success/Sabotage Card Panel -->
+              <div id="control-mission" class="control-group-panel hidden">
+                <p>운송 임무를 수행하십시오. (인류 진영은 좀비 피습 선택 불가)</p>
+                <div class="mission-buttons flex-row">
+                  <button id="mission-success-btn" class="btn btn-success btn-mission" onclick="submitMissionCard(true)">운송 성공</button>
+                  <button id="mission-fail-btn" class="btn btn-danger btn-mission" onclick="submitMissionCard(false)">좀비 피습</button>
+                </div>
+                <div id="mission-submitted-status" class="vote-status-text"></div>
               </div>
 
-              <div class="role-detail-box bad-border">
-                <strong class="bad-text">🎭 위장좀비</strong>
-                <p>좀비군단 진영. 게임 시작단계에서 <strong>총사령관</strong>의 눈에 진짜 항체보유자 후보로 보입니다. 항체보유자인 척 총사령관을 기만하여 좀비들이 원정대에 편성되도록 선동해야 합니다.</p>
+              <!-- D. Final Assassination Screen (For Sniper Zombie only) -->
+              <div id="control-assassination" class="control-group-panel hidden">
+                <p class="warning-text">🎯 항체보유자를 찾아 저격하십시오! 틀리면 인류의 승리입니다.</p>
+                <div id="assassination-target-grid" class="nomination-grid">
+                  <!-- Player targets -->
+                </div>
+                <button id="assassinate-submit-btn" class="btn btn-danger" onclick="submitAssassination()" disabled>저격 실행</button>
               </div>
-
-              <div class="role-detail-box bad-border">
-                <strong class="bad-text">🌫️ 은신좀비</strong>
-                <p>좀비군단 진영. 게임 시작단계에서 인류 진영 <strong>항체보유자</strong>의 레이더에 잡히지 않는 특수 스텔스 능력을 갖습니다. 항체보유자에게 들키지 않고 자연스럽게 스며들어 방해 공작을 진행하십시오.</p>
-              </div>
-
-              <div class="role-detail-box bad-border">
-                <strong class="bad-text">🧠 무지성좀비</strong>
-                <p>좀비군단 진영. 별도의 특수 능력은 없으나, 인류 멸종을 목표로 하여 동료 좀비들과 교류하고 적극적으로 운송대를 방해합니다.</p>
-              </div>
-            </section>
-
-            <section class="rules-section">
-              <h4>⚙️ GAS 자동 규칙 설정</h4>
-              <p>인원 수(5~10인)에 따른 역할군 세팅 및 라운드별 투입 대원 규모는 GAS(Game Auto-Scaling)에 의해 실시간으로 변동됩니다.</p>
-            </section>
-
+            </div>
           </div>
-        </div>
-      </aside>
-    </div>
+
+          <!-- Role Overlay Panel (Hold to Reveal Popup) -->
+          <div id="role-reveal-overlay" class="role-overlay hidden">
+            <div class="role-reveal-content">
+              <h2 id="revealed-role-name">역할명</h2>
+              <div class="role-alliance-tag" id="revealed-role-alliance">소속 진영</div>
+              <p class="role-desc" id="revealed-role-desc">상세 설명</p>
+              <div class="role-secret-info" id="revealed-role-secrets">
+                <!-- Secret info visible only to specific roles -->
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Tab Content: Rules Info -->
+      <div class="player-tab-content" id="p-content-rules" style="display: none;">
+        <!-- Rules Sidebar Document (Right Column) -->
+        <aside class="player-rules-sidebar">
+          <div class="rules-card">
+            <h3 class="rules-header">📜 임무 명세 및 역할 정보</h3>
+            <div class="rules-scroll-body">
+              
+              <section class="rules-section">
+                <h4>🛡️ 기본 게임 개요</h4>
+                <p>본 게임은 연구소로 백신 혈액을 이송하기 위한 인류와 이를 방해해 좀비로 감염시키려는 좀비 군단 간의 대립입니다. 3회의 백신 이송에 성공하면 인류 진영이 최종 승리 후보가 되며, 3회의 좀비 피습이 발생하거나 5회의 투표가 부결되면 좀비 군단이 최종 승리합니다.</p>
+              </section>
+
+              <section class="rules-section">
+                <h4>👥 최후의 인류 진영 (Good)</h4>
+                
+                <div class="role-detail-box good-border">
+                  <strong class="good-text">🧪 항체보유자</strong>
+                  <p>최후의 인류 진영. 몰래 잠입한 좀비들이 누군지 게임 시작단계에서 알 수 있습니다. 단, <strong>은신좀비</strong>의 정체는 알 수 없으며 게임 종료 직전 <strong>저격좀비</strong>에게 정체가 들키면 암살당해 좀비진영이 최종 승리합니다.</p>
+                </div>
+
+                <div class="role-detail-box good-border">
+                  <strong class="good-text">🛡️ 총사령관</strong>
+                  <p>최후의 인류 진영. 게임 시작단계에서 항체보유자가 누구인지 확인합니다. 다만, <strong>위장좀비</strong>도 항체보유자 후보로 함께 노출되므로, 두 명 중 진짜를 가려내어 운송대에 배치해야 합니다.</p>
+                </div>
+
+                <div class="role-detail-box good-border">
+                  <strong class="good-text">🔧 저항군</strong>
+                  <p>최후의 인류 진영. 별도의 특수 능력은 없습니다. 리더의 배치를 신중히 투표하고 미션 성공을 도와 백신을 완성시켜야 합니다.</p>
+                </div>
+              </section>
+
+              <section class="rules-section">
+                <h4>🧟 좀비군단 진영 (Bad)</h4>
+
+                <div class="role-detail-box bad-border">
+                  <strong class="bad-text">🎯 저격좀비</strong>
+                  <p>좀비군단 진영. 인류 진영이 백신 개발(3승)에 거의 성공했을 때 정체를 밝힙니다. 인류 진영의 <strong>항체보유자</strong>가 누구인지 알아내어 최종 지목(암살) 성공 시 좀비 진영으로 전세를 뒤집어 역전승합니다.</p>
+                </div>
+
+                <div class="role-detail-box bad-border">
+                  <strong class="bad-text">🎭 위장좀비</strong>
+                  <p>좀비군단 진영. 게임 시작단계에서 <strong>총사령관</strong>의 눈에 진짜 항체보유자 후보로 보입니다. 항체보유자인 척 총사령관을 기만하여 좀비들이 원정대에 편성되도록 선동해야 합니다.</p>
+                </div>
+
+                <div class="role-detail-box bad-border">
+                  <strong class="bad-text">🌫️ 은신좀비</strong>
+                  <p>좀비군단 진영. 게임 시작단계에서 인류 진영 <strong>항체보유자</strong>의 레이더에 잡히지 않는 특수 스텔스 능력을 갖습니다. 항체보유자에게 들키지 않고 자연스럽게 스며들어 방해 공작을 진행하십시오.</p>
+                </div>
+
+                <div class="role-detail-box bad-border">
+                  <strong class="bad-text">🧠 무지성좀비</strong>
+                  <p>좀비군단 진영. 별도의 특수 능력은 없으나, 인류 멸종을 목표로 하여 동료 좀비들과 교류하고 적극적으로 운송대를 방해합니다.</p>
+                </div>
+              </section>
+
+              <section class="rules-section">
+                <h4>⚙️ GAS 자동 규칙 설정</h4>
+                <p>인원 수(5~10인)에 따른 역할군 세팅 및 라운드별 투입 대원 규모는 GAS(Game Auto-Scaling)에 의해 실시간으로 변동됩니다.</p>
+              </section>
+
+            </div>
+          </div>
+        </aside>
+      </div>
   </main>
 
   <!-- ==================== FINAL GAME OVER DIALOG ==================== -->
