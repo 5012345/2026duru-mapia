@@ -789,8 +789,7 @@ function botPerformNomination(sizeRequired) {
   }
   
   selectedNominees = selection;
-  clearInterval(timerInterval);
-  announceNominatedTeam();
+  submitNomination();
 }
 
 function announceNominatedTeam() {
@@ -1958,18 +1957,6 @@ function drawRoulette(angle) {
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = '#0d0e12';
       ctx.stroke();
-
-      // Text labels
-      ctx.save();
-      ctx.translate(centerX, centerY);
-      ctx.rotate(startAngle + sliceAngle / 2);
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 9px Orbitron, sans-serif';
-      ctx.textAlign = 'right';
-      
-      const label = player.name.substring(0, 7);
-      ctx.fillText(label, radius - 15, 3);
-      ctx.restore();
     }
 
     // Draw inner node
@@ -2642,6 +2629,11 @@ function handleStateTransition(newState) {
                 document.getElementById('req-team-size').innerText = sizeRequired;
                 renderNominationSelectorGrid(sizeRequired);
               }
+              
+              // 관리자 뷰에서는 이 상태 전파를 수신했을 때 타이머와 봇 지명 프로세스를 트리거해야 함
+              if (adminLogged) {
+                startNominationPhase();
+              }
             }
           }
         });
@@ -2750,6 +2742,13 @@ function animateSyncRoulette() {
         const adminOverlay = document.getElementById('admin-roulette-overlay');
         if (playerOverlay) playerOverlay.classList.remove('show');
         if (adminOverlay) adminOverlay.classList.remove('show');
+        
+        // 룰렛 종료 후 관리자인 경우 Firebase에 상태 전송
+        if (firebaseMode && adminLogged) {
+          db.ref('room/leaderIdx').set(rouletteTargetIdx);
+          db.ref('room/currentRound').set(currentRound);
+          db.ref('room/state').set('nomination');
+        }
       }, 2000);
     }
   } else {

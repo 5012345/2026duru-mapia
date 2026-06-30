@@ -701,7 +701,7 @@ h1, h2, h3, h4, .font-tech {
   background: #111;
   overflow: hidden;
 }
-#roulette-canvas {
+#roulette-canvas-admin, #roulette-canvas-player {
   width: 100%;
   height: 100%;
 }
