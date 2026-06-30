@@ -444,6 +444,127 @@ function adminStartGame() {
   }
 }
 
+// ==================== INTRO BACKGROUND MUSIC (Web Audio API) ====================
+
+let _introAudioCtx = null;
+let _introMasterGain = null;
+let _introSources = [];
+
+function startIntroMusic() {
+  try {
+    if (_introAudioCtx) stopIntroMusic(0);
+    _introAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    _introSources = [];
+
+    const ctx = _introAudioCtx;
+    _introMasterGain = ctx.createGain();
+    _introMasterGain.gain.setValueAtTime(0, ctx.currentTime);
+    _introMasterGain.gain.linearRampToValueAtTime(0.55, ctx.currentTime + 2.5);
+    _introMasterGain.connect(ctx.destination);
+
+    // --- 레이어 1: 군사 경고 사이렌 (저음 사이렌 + 고음 사이렌 2중 반복) ---
+    function createSiren(baseFreq, topFreq, periodSec, delayStart, gainVal) {
+      const osc = ctx.createOscillator();
+      const oscGain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(baseFreq, ctx.currentTime + delayStart);
+      oscGain.gain.setValueAtTime(gainVal, ctx.currentTime + delayStart);
+
+      // 반복 사이렌 주파수 스윕 (8사이클 정도 예약)
+      const cycles = 10;
+      for (let i = 0; i < cycles; i++) {
+        const t = ctx.currentTime + delayStart + i * periodSec;
+        osc.frequency.linearRampToValueAtTime(topFreq, t + periodSec * 0.5);
+        osc.frequency.linearRampToValueAtTime(baseFreq, t + periodSec);
+      }
+
+      // 부드러운 웨이브 envelope
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+      lfo.frequency.value = 1 / periodSec;
+      lfoGain.gain.value = gainVal * 0.3;
+      lfo.connect(lfoGain);
+      lfoGain.connect(oscGain.gain);
+      lfo.start();
+
+      osc.connect(oscGain);
+      oscGain.connect(_introMasterGain);
+      osc.start(ctx.currentTime + delayStart);
+      _introSources.push(osc, lfo);
+    }
+
+    createSiren(580, 1150, 5.5, 0, 0.25);    // 주 사이렌
+    createSiren(400, 820, 7.2, 1.8, 0.15);   // 2차 사이렌 (위상 차이)
+
+    // --- 레이어 2: 군중 공황 소리 (필터드 노이즈) ---
+    const bufferSize = ctx.sampleRate * 4; // 4초 노이즈 루프
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      noiseData[i] = (Math.random() * 2 - 1);
+    }
+
+    const noiseSource = ctx.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+    noiseSource.loop = true;
+
+    // 저역 필터 (군중의 웅성거림 느낌)
+    const crowdFilter = ctx.createBiquadFilter();
+    crowdFilter.type = 'bandpass';
+    crowdFilter.frequency.value = 320;
+    crowdFilter.Q.value = 0.9;
+
+    // 진폭 변조로 군중 소리의 파동 표현
+    const crowdLFO = ctx.createOscillator();
+    const crowdLFOGain = ctx.createGain();
+    const crowdGain = ctx.createGain();
+    crowdLFO.frequency.value = 0.18; // 매우 느린 파도
+    crowdLFOGain.gain.value = 0.06;
+    crowdGain.gain.value = 0.18;
+
+    crowdLFO.connect(crowdLFOGain);
+    crowdLFOGain.connect(crowdGain.gain);
+    noiseSource.connect(crowdFilter);
+    crowdFilter.connect(crowdGain);
+    crowdGain.connect(_introMasterGain);
+    crowdLFO.start();
+    noiseSource.start();
+    _introSources.push(noiseSource, crowdLFO);
+
+    // --- 레이어 3: 저주파 긴장감 드론 ---
+    const droneOsc = ctx.createOscillator();
+    const droneGain = ctx.createGain();
+    droneOsc.type = 'sine';
+    droneOsc.frequency.value = 55;
+    droneGain.gain.setValueAtTime(0, ctx.currentTime);
+    droneGain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 4);
+    droneOsc.connect(droneGain);
+    droneGain.connect(_introMasterGain);
+    droneOsc.start();
+    _introSources.push(droneOsc);
+
+  } catch(e) {
+    console.warn('Intro music could not start:', e);
+  }
+}
+
+function stopIntroMusic(fadeDurationMs) {
+  if (!_introAudioCtx || !_introMasterGain) return;
+  const ctx = _introAudioCtx;
+  const fadeSec = (fadeDurationMs || 0) / 1000;
+  _introMasterGain.gain.setValueAtTime(_introMasterGain.gain.value, ctx.currentTime);
+  _introMasterGain.gain.linearRampToValueAtTime(0, ctx.currentTime + fadeSec);
+  setTimeout(() => {
+    _introSources.forEach(s => { try { s.stop(); } catch(e){} });
+    _introSources = [];
+    try { ctx.close(); } catch(e){}
+    _introAudioCtx = null;
+    _introMasterGain = null;
+  }, (fadeDurationMs || 0) + 100);
+}
+
+// ==================== INTRO BRIEFING SIMULATION ====================
+
 function playIntroSequence() {
   const storyFieldPlayer = document.getElementById('intro-story-text');
   const storyFieldAdmin = document.getElementById('admin-intro-story-text');
@@ -457,6 +578,9 @@ function playIntroSequence() {
   setTimeout(() => {
     imgContainers.forEach(c => c.classList.add('show'));
   }, 100);
+
+  // 세계관 스토리 시작 시 배경음악 재생
+  startIntroMusic();
   
   const storyParagraphs = [
     "인류는 평화로웠다. 그 사건이 있기 전까지는.",
@@ -503,6 +627,9 @@ function endIntroSequence() {
   document.getElementById('player-intro-screen').classList.add('hidden');
   document.getElementById('admin-intro-screen').classList.add('hidden');
   document.getElementById('player-game-screen').classList.remove('hidden');
+
+  // 배경음악 페이드아웃 (2초)
+  stopIntroMusic(2000);
   
   // Transition game state
   gameState = 'leader_spinning';
@@ -2197,41 +2324,42 @@ function initFirebase() {
       db = firebase.database();
       firebaseMode = true;
       
-      firebase.auth().signInAnonymously()
-        .then(userCredential => {
-          myPlayerId = userCredential.user.uid;
-          console.log("Firebase Authenticated anonymously. myPlayerId:", myPlayerId);
-          
-          // 실시간 데이터베이스 연결 헬스체크 (2.5초 타임아웃)
-          let dbCheckPassed = false;
-          const dbCheckTimeout = setTimeout(() => {
-            if (!dbCheckPassed) {
-              console.warn("Firebase Database connection timeout. Falling back to local offline mode.");
-              firebaseMode = false;
-              initLocalMode();
+      // 브라우저 세션 영구 유지(localStorage) 설정 → 새로고침 후에도 동일 uid 복원
+      firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+        .then(() => {
+          // onAuthStateChanged: 기존 세션이 있으면 즉시 user 반환, 없으면 새로 익명 로그인
+          firebase.auth().onAuthStateChanged(user => {
+            if (user) {
+              myPlayerId = user.uid;
+              console.log("Firebase session restored. myPlayerId:", myPlayerId);
+              onFirebaseAuthReady();
+            } else {
+              firebase.auth().signInAnonymously()
+                .then(cred => {
+                  myPlayerId = cred.user.uid;
+                  console.log("Firebase Authenticated anonymously. myPlayerId:", myPlayerId);
+                  onFirebaseAuthReady();
+                })
+                .catch(err => {
+                  console.error("Firebase Auth failed, falling back to local mode:", err);
+                  firebaseMode = false;
+                  initLocalMode();
+                });
             }
-          }, 2500);
-          
-          db.ref('room/state').once('value')
-            .then(() => {
-              dbCheckPassed = true;
-              clearTimeout(dbCheckTimeout);
-              console.log("Firebase Database connection successful.");
-              setupFirebaseListeners();
-              initLobbyGrid();
+          });
+        })
+        .catch(() => {
+          // setPersistence 실패 시 기존 방식 폴백
+          firebase.auth().signInAnonymously()
+            .then(userCredential => {
+              myPlayerId = userCredential.user.uid;
+              onFirebaseAuthReady();
             })
-            .catch(dbErr => {
-              dbCheckPassed = true;
-              clearTimeout(dbCheckTimeout);
-              console.error("Firebase Database connection failed. Falling back to local offline mode:", dbErr);
+            .catch(err => {
+              console.error("Firebase Auth failed, falling back to local mode:", err);
               firebaseMode = false;
               initLocalMode();
             });
-        })
-        .catch(err => {
-          console.error("Firebase Auth failed, falling back to local mode:", err);
-          firebaseMode = false;
-          initLocalMode();
         });
     })
     .catch(err => {
@@ -2239,6 +2367,106 @@ function initFirebase() {
       firebaseMode = false;
       initLocalMode();
     });
+}
+
+function onFirebaseAuthReady() {
+  // 실시간 데이터베이스 연결 헬스체크 (2.5초 타임아웃)
+  let dbCheckPassed = false;
+  const dbCheckTimeout = setTimeout(() => {
+    if (!dbCheckPassed) {
+      console.warn("Firebase Database connection timeout. Falling back to local offline mode.");
+      firebaseMode = false;
+      initLocalMode();
+    }
+  }, 2500);
+  
+  db.ref('room/state').once('value')
+    .then(stateSnap => {
+      dbCheckPassed = true;
+      clearTimeout(dbCheckTimeout);
+      console.log("Firebase Database connection successful.");
+      setupFirebaseListeners();
+      initLobbyGrid();
+      
+      // 재접속 복원 시도: DB에 이미 해당 플레이어 데이터가 있고 게임 진행 중이면 복원
+      if (stateSnap.exists()) {
+        const currentState = stateSnap.val();
+        const activeStates = ['role_briefing', 'leader_spinning', 'nomination', 'voting', 'mission_depart', 'mission_action', 'mission_reveal', 'assassination'];
+        if (activeStates.includes(currentState)) {
+          tryReconnectExistingSession(currentState);
+        }
+      }
+    })
+    .catch(dbErr => {
+      dbCheckPassed = true;
+      clearTimeout(dbCheckTimeout);
+      console.error("Firebase Database connection failed. Falling back to local offline mode:", dbErr);
+      firebaseMode = false;
+      initLocalMode();
+    });
+}
+
+/**
+ * 재접속 복원 함수: DB에서 내 플레이어 데이터를 찾아 기존 상태를 복원합니다.
+ */
+function tryReconnectExistingSession(currentState) {
+  db.ref(`room/players/${myPlayerId}`).once('value', snap => {
+    if (!snap.exists()) {
+      // DB에 내 플레이어 데이터가 없으면 로비에 그대로 머물기
+      console.log("No existing session found for myPlayerId:", myPlayerId);
+      return;
+    }
+    
+    const playerData = snap.val();
+    console.log("Reconnecting existing session for player:", playerData.name, "state:", currentState);
+    
+    // 로컬 상태 복원
+    userSelectedColor = playerData.color;
+    
+    // isOnline 복원
+    db.ref(`room/players/${myPlayerId}/isOnline`).set(true);
+    
+    // 저장된 닉네임 로비 입력창에 복원
+    const nickInput = document.getElementById('lobby-nickname-input');
+    if (nickInput) nickInput.value = playerData.name;
+    
+    // 내 역할 정보 복원
+    db.ref(`room/privateRoles/${myPlayerId}`).once('value', roleSnap => {
+      if (roleSnap.exists()) {
+        const roleData = roleSnap.val();
+        const me = players.find(p => p.id === myPlayerId);
+        if (me) {
+          me.role = roleData.role;
+          me.alliance = roleData.alliance;
+        }
+      }
+      
+      // 게임 화면으로 복원 (플레이어 뷰)
+      switchView('player');
+      document.getElementById('player-game-screen').classList.remove('hidden');
+      document.getElementById('player-intro-screen').classList.add('hidden');
+      
+      // gameState를 일시적으로 빈 값으로 설정 → handleStateTransition의 guard(newState !== gameState) 통과
+      gameState = '_reconnecting';
+      
+      // 현재 실제 게임 상태로 화면을 강제 복원
+      handleStateTransition(currentState);
+      
+      // 재접속 알림 표시
+      const statusEl = document.getElementById('game-status-msg');
+      if (statusEl) {
+        const origText = statusEl.innerHTML;
+        statusEl.innerHTML = `<span style="color: var(--neon-cyan)">🔄 재접속 완료 — ${playerData.name}으로 게임에 복귀했습니다.</span>`;
+        setTimeout(() => {
+          if (statusEl.innerHTML.includes('재접속')) statusEl.innerHTML = origText;
+        }, 3500);
+      }
+      
+      if (typeof addAdminLog === 'function') {
+        addAdminLog(`플레이어 '${playerData.name}'이 재접속하였습니다.`, 'info');
+      }
+    });
+  });
 }
 
 function initLocalMode() {
@@ -2649,7 +2877,17 @@ function handleStateTransition(newState) {
     document.getElementById('game-status-msg').innerText = "지명된 운송대 명단에 대한 찬성/반대 투표가 진행 중입니다.";
     
     if (!adminLogged) {
-      document.getElementById('control-voting').classList.remove('hidden');
+      // 재접속 시 이미 투표한 경우 패널 표시 생략
+      db.ref(`room/votes/${myPlayerId}`).once('value', voteSnap => {
+        if (voteSnap.exists()) {
+          // 이미 투표 완료
+          const prevVote = voteSnap.val();
+          document.getElementById('vote-submitted-status').innerText = `투표 완료: ${prevVote ? '찬성' : '반대'}을 이미 제출했습니다. 다른 참가자들을 대기 중...`;
+          document.getElementById('control-voting').classList.add('hidden');
+        } else {
+          document.getElementById('control-voting').classList.remove('hidden');
+        }
+      });
     }
   }
   else if (newState === 'mission_depart') {
@@ -2662,10 +2900,18 @@ function handleStateTransition(newState) {
     
     const isOnTeam = selectedNominees.includes(myPlayerId);
     if (isOnTeam && !adminLogged) {
-      document.getElementById('control-mission').classList.remove('hidden');
-      const me = getMyPlayer();
-      const isHuman = (me.alliance === 'human');
-      document.getElementById('mission-fail-btn').disabled = isHuman;
+      // 재접속 시 이미 미션 카드 제출 여부 확인
+      db.ref(`room/missionVotes/${myPlayerId}`).once('value', msnSnap => {
+        if (msnSnap.exists()) {
+          document.getElementById('mission-submitted-status').innerText = '미션 카드를 이미 제출했습니다. 다른 운송대원을 대기 중...';
+          document.getElementById('control-mission').classList.add('hidden');
+        } else {
+          document.getElementById('control-mission').classList.remove('hidden');
+          const me = getMyPlayer();
+          const isHuman = (me.alliance === 'human');
+          document.getElementById('mission-fail-btn').disabled = isHuman;
+        }
+      });
     } else {
       document.getElementById('control-mission').classList.add('hidden');
       document.getElementById('game-status-msg').innerText = "지명된 운송대원들이 백신 수송 카드를 제출하고 있습니다.";
@@ -2713,12 +2959,33 @@ function animateSyncRoulette() {
   rouletteAngle += rouletteSpeed;
   rouletteSpeed *= 0.98;
   
+  // 속도가 거의 0에 가까워지면 정확한 목표 슬라이스 중앙으로 부드럽게 스냅
+  if (rouletteSpeed < 0.05 && rouletteTargetIdx >= 0 && players.length > 0) {
+    const numSlices = players.length;
+    const sliceAngle = (2 * Math.PI) / numSlices;
+    // 포인터가 위쪽(-π/2)을 가리킬 때 targetIdx 슬라이스 중앙이 위에 오려면:
+    // rouletteAngle = -(targetIdx + 0.5) * sliceAngle + π/2 + N*2π (N은 현재 바퀴수에서 가장 가까운 정수)
+    const baseTarget = -(rouletteTargetIdx + 0.5) * sliceAngle + Math.PI * 0.5;
+    // 현재 각도에서 가장 가까운 동등 각도를 목표로 설정
+    const deltaToTarget = ((baseTarget - rouletteAngle) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+    const snapTarget = rouletteAngle + deltaToTarget;
+    // 부드럽게 선형 보간 (lerp): 속도에 비례하게
+    rouletteAngle = rouletteAngle + (snapTarget - rouletteAngle) * 0.1;
+  }
+
   drawRoulette(rouletteAngle);
   
   if (rouletteSpeed < 0.002) {
     rouletteAnimating = false;
     rouletteSpeed = 0;
     
+    // 최종 각도를 완전히 목표 슬라이스에 맞게 스냅
+    if (rouletteTargetIdx >= 0 && players.length > 0) {
+      const numSlices = players.length;
+      const sliceAngle = (2 * Math.PI) / numSlices;
+      rouletteAngle = -(rouletteTargetIdx + 0.5) * sliceAngle + Math.PI * 0.5;
+      drawRoulette(rouletteAngle);
+    }
     const leaderPlayer = players[rouletteTargetIdx];
     if (leaderPlayer) {
       const colorObj = COLORS.find(c => c.value === leaderPlayer.color);
