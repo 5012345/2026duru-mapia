@@ -1365,6 +1365,10 @@ function tallyMissionResults() {
     addAdminLog(logText, 'danger');
   }
   
+  if (firebaseMode && adminLogged) {
+    db.ref('room/roundsHistory').set(roundsHistory);
+  }
+  
   // Update admin Beaker progress bar
   const beakerPercent = Math.min(100, Math.round((vaccineSuccesses / 3) * 100));
   const beakerPercentElem = document.getElementById('beaker-percent');
@@ -1634,7 +1638,7 @@ function endGame(reason) {
     : "좀비군단 진영 명단 공개";
   
   const revealedPlayers = players.filter(p => p.alliance === targetAlliance);
-  
+  finalContainer.innerHTML = ''; // 중복 노출 방지
   revealedPlayers.forEach(p => {
     const colorObj = COLORS.find(c => c.value === p.color);
     const chip = document.createElement('div');
@@ -1930,7 +1934,7 @@ function updateStatusDots() {
   const rejectContainer = document.getElementById('reject-dots-container');
   if (!roundContainer || !rejectContainer) return;
   
-  // 라운드 표시 (총 5라운드)
+  // 라운드 표시 (총 5라운드, 성공=초록색, 실패=빨간색)
   roundContainer.innerHTML = '';
   for (let i = 1; i <= 5; i++) {
     const dot = document.createElement('span');
@@ -1938,23 +1942,34 @@ function updateStatusDots() {
     dot.style.width = '14px';
     dot.style.height = '14px';
     dot.style.borderRadius = '50%';
-    dot.style.border = '2px solid var(--neon-cyan)';
+    
     if (i < currentRound) {
-      // 지난 라운드는 채워짐
-      dot.style.background = 'var(--neon-cyan)';
-      dot.style.boxShadow = '0 0 8px var(--neon-cyan)';
+      // 지난 라운드는 결과(성공/실패)에 따라 초록색/빨간색으로 채워짐
+      const outcome = roundsHistory[i - 1];
+      if (outcome === 'success') {
+        dot.style.border = '2px solid var(--neon-green)';
+        dot.style.background = 'var(--neon-green)';
+        dot.style.boxShadow = '0 0 8px var(--neon-green)';
+      } else {
+        dot.style.border = '2px solid var(--neon-red)';
+        dot.style.background = 'var(--neon-red)';
+        dot.style.boxShadow = '0 0 8px var(--neon-red)';
+      }
     } else if (i === currentRound) {
-      // 현재 라운드는 깜빡임
+      // 현재 라운드는 파란색 깜빡임
+      dot.style.border = '2px solid var(--neon-cyan)';
       dot.style.background = 'rgba(0, 240, 255, 0.3)';
       dot.style.boxShadow = '0 0 10px var(--neon-cyan)';
       dot.style.animation = 'sirenBlink 1s infinite alternate';
     } else {
+      // 미래 라운드는 빈 원형
+      dot.style.border = '2px solid var(--neon-cyan)';
       dot.style.background = 'transparent';
     }
     roundContainer.appendChild(dot);
   }
   
-  // 부결 표시 (총 5회)
+  // 부결 표시 (총 5회, 하얀색으로 표기)
   rejectContainer.innerHTML = '';
   for (let i = 1; i <= 5; i++) {
     const dot = document.createElement('span');
@@ -1962,10 +1977,10 @@ function updateStatusDots() {
     dot.style.width = '14px';
     dot.style.height = '14px';
     dot.style.borderRadius = '50%';
-    dot.style.border = '2px solid var(--neon-red)';
+    dot.style.border = '2px solid #ffffff'; // 하얀색 테두리
     if (i <= rejectCount) {
-      dot.style.background = 'var(--neon-red)';
-      dot.style.boxShadow = '0 0 8px var(--neon-red)';
+      dot.style.background = '#ffffff'; // 하얀색 채우기
+      dot.style.boxShadow = '0 0 8px #ffffff';
     } else {
       dot.style.background = 'transparent';
     }
@@ -2846,6 +2861,14 @@ function setupFirebaseListeners() {
     }
   });
   
+  // roundsHistory sync
+  db.ref('room/roundsHistory').on('value', snapshot => {
+    if (snapshot.exists()) {
+      roundsHistory = snapshot.val() || [];
+      updateStatusDots();
+    }
+  });
+
   // End game trigger
   db.ref('room/endGameData').on('value', snapshot => {
     if (snapshot.exists()) {
@@ -3256,6 +3279,7 @@ function triggerClientEndGame(reason) {
     }
     
     const revealedPlayers = players.filter(p => p.alliance === targetAlliance);
+    if (finalContainer) finalContainer.innerHTML = ''; // 클라이언트 렌더링 시 중복 발생 원인 차단
     revealedPlayers.forEach(p => {
       const colorObj = COLORS.find(c => c.value === p.color);
       const chip = document.createElement('div');
