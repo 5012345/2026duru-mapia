@@ -1740,8 +1740,12 @@ function startRevealRole(e) {
   
   if (user.role === '항체보유자') {
     showSecrets = true;
-    // Sees zombies except 은신좀비 (Stealth Zombie)
-    const zombiesToReveal = players.filter(p => p.alliance === 'zombie' && p.role !== '은신좀비');
+    // 모든 좀비군단 정보를 보여줌 (단, 은신좀비는 제외)
+    // Firebase 모드인 경우 room/privateRoles 에서 좀비들을 실시간 매핑하여 로컬 players 에 반영 후 필터링
+    const zombiesToReveal = players.filter(p => {
+      // 만약 로컬에 아직 alliance 정보가 매핑 안되었다면 임시 조회
+      return p.alliance === 'zombie' && p.role !== '은신좀비';
+    });
     if (zombiesToReveal.length > 0) {
       zombiesToReveal.forEach(z => {
         const colorObj = COLORS.find(c => c.value === z.color);
@@ -1759,7 +1763,6 @@ function startRevealRole(e) {
   } 
   else if (user.role === '총사령관') {
     showSecrets = true;
-    // Sees real Merlin (항체보유자) and Disguised Zombie (위장좀비) as candidates
     const candidates = players.filter(p => p.role === '항체보유자' || p.role === '위장좀비');
     candidates.forEach(c => {
       const colorObj = COLORS.find(c => c.value === c.color);
@@ -1778,7 +1781,7 @@ function startRevealRole(e) {
     const fellowZombies = players.filter(p => p.alliance === 'zombie');
     fellowZombies.forEach(z => {
       const colorObj = COLORS.find(c => c.value === z.color);
-      const isSelf = (z.id === (firebaseMode ? myPlayerId : 0)) || (z.id === user.id);
+      const isSelf = z.id === myPlayerId || z.id === user.id;
       const item = document.createElement('div');
       item.className = 'secret-item';
       item.innerHTML = `
@@ -2027,12 +2030,13 @@ function addAdminLog(text, type = '') {
         const consoleCard = document.createElement('div');
         consoleCard.className = 'admin-card';
         consoleCard.style.marginTop = 'auto';
-        consoleCard.style.maxHeight = '140px';
+        consoleCard.style.flex = '2'; // 작전 로그 창 크기 대폭 키우기
         consoleCard.style.display = 'flex';
         consoleCard.style.flexDirection = 'column';
+        consoleCard.style.minHeight = '280px';
         consoleCard.innerHTML = `
-          <h3 style="font-size: 0.85rem;">📝 작전 활동 로그</h3>
-          <div id="admin-log-console" style="overflow-y:auto; flex:1; font-family:'Courier New', monospace; font-size:0.75rem; color:#a0aec0; line-height:1.4; display:flex; flex-direction:column; gap:4px;"></div>
+          <h3 style="font-size: 1rem; color: var(--neon-cyan); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 10px;">📝 작전 활동 로그</h3>
+          <div id="admin-log-console" style="overflow-y:auto; flex:1; font-family:'Courier New', monospace; font-size:0.95rem; color:#e2e8f0; line-height:1.6; display:flex; flex-direction:column; gap:6px; padding: 10px; background: rgba(0,0,0,0.4); border-radius: 6px;"></div>
         `;
         parent.appendChild(consoleCard);
         logConsole = document.getElementById('admin-log-console');
@@ -2659,12 +2663,13 @@ function setupFirebaseListeners() {
           const consoleCard = document.createElement('div');
           consoleCard.className = 'admin-card';
           consoleCard.style.marginTop = 'auto';
-          consoleCard.style.maxHeight = '140px';
+          consoleCard.style.flex = '2'; // 작전 로그 창 크기 대폭 키우기
           consoleCard.style.display = 'flex';
           consoleCard.style.flexDirection = 'column';
+          consoleCard.style.minHeight = '280px'; // 최소 높이 설정
           consoleCard.innerHTML = `
-            <h3 style="font-size: 0.85rem;">📝 작전 활동 로그</h3>
-            <div id="admin-log-console" style="overflow-y:auto; flex:1; font-family:'Courier New', monospace; font-size:0.75rem; color:#a0aec0; line-height:1.4; display:flex; flex-direction:column; gap:4px;"></div>
+            <h3 style="font-size: 1rem; color: var(--neon-cyan); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 10px;">📝 작전 활동 로그</h3>
+            <div id="admin-log-console" style="overflow-y:auto; flex:1; font-family:'Courier New', monospace; font-size:0.95rem; color:#e2e8f0; line-height:1.6; display:flex; flex-direction:column; gap:6px; padding: 10px; background: rgba(0,0,0,0.4); border-radius: 6px;"></div>
           `;
           parent.appendChild(consoleCard);
           logConsole = document.getElementById('admin-log-console');
@@ -2833,68 +2838,81 @@ function handleStateTransition(newState) {
     document.getElementById('screen-truck-panel').classList.add('hidden');
     document.getElementById('screen-info-panel').classList.remove('hidden');
     
-    db.ref(`room/privateRoles/${myPlayerId}`).once('value', roleSnap => {
-      if (roleSnap.exists()) {
-        const roleData = roleSnap.val();
-        const me = getMyPlayer();
-        if (me) {
-          me.role = roleData.role;
-          me.alliance = roleData.alliance;
-        }
+    // nomination 단계로 올 때 방 정보에서 전체 플레이어의 진영 및 역할 동기화 처리 추가
+    db.ref('room/privateRoles').once('value', allRolesSnap => {
+      if (allRolesSnap.exists()) {
+        const allRoles = allRolesSnap.val();
+        players.forEach(p => {
+          if (allRoles[p.id]) {
+            p.role = allRoles[p.id].role;
+            p.alliance = allRoles[p.id].alliance;
+          }
+        });
       }
       
-      db.ref('room/currentRound').once('value', roundSnap => {
-        if (roundSnap.exists()) {
-          currentRound = roundSnap.val();
-          document.getElementById('admin-round-num').innerText = currentRound;
-          document.getElementById('game-round-num').innerText = currentRound;
+      db.ref(`room/privateRoles/${myPlayerId}`).once('value', roleSnap => {
+        if (roleSnap.exists()) {
+          const roleData = roleSnap.val();
+          const me = getMyPlayer();
+          if (me) {
+            me.role = roleData.role;
+            me.alliance = roleData.alliance;
+          }
         }
         
-        db.ref('room/leaderIdx').once('value', leaderSnap => {
-          if (leaderSnap.exists()) {
-            currentPhaseLeader = leaderSnap.val();
-            const leader = players[currentPhaseLeader];
-            if (leader) {
-              const colorObj = COLORS.find(c => c.value === leader.color);
-              document.getElementById('game-leader-name').innerText = `${leader.name} (${colorObj.name})`;
-              
-              const leaderDisplay = document.getElementById('admin-leader-name-display');
-              if (leaderDisplay) {
-                leaderDisplay.innerText = `${leader.name} (${colorObj.name})`;
-                leaderDisplay.style.color = colorObj.primary;
-              }
-              const avatarPlaceholder = document.getElementById('admin-leader-avatar-placeholder');
-              if (avatarPlaceholder) {
-                avatarPlaceholder.innerHTML = getCrewmateSVG(colorObj.primary, colorObj.shadow);
-              }
-              
-              const isUserLeader = (leader.id === myPlayerId);
-              if (isUserLeader && !adminLogged) {
-                const teamSizes = GAS.getTeamSizes(playerCount);
-                const sizeRequired = teamSizes[currentRound - 1];
+        db.ref('room/currentRound').once('value', roundSnap => {
+          if (roundSnap.exists()) {
+            currentRound = roundSnap.val();
+            document.getElementById('admin-round-num').innerText = currentRound;
+            document.getElementById('game-round-num').innerText = currentRound;
+          }
+          
+          db.ref('room/leaderIdx').once('value', leaderSnap => {
+            if (leaderSnap.exists()) {
+              currentPhaseLeader = leaderSnap.val();
+              const leader = players[currentPhaseLeader];
+              if (leader) {
+                const colorObj = COLORS.find(c => c.value === leader.color);
+                document.getElementById('game-leader-name').innerText = `${leader.name} (${colorObj.name})`;
                 
-                // 지명 패널 표시
-                selectedNominees = [];
-                document.getElementById('nominated-team-list').innerHTML = '<div class="empty-nominee-slot">미편성</div>';
-                document.getElementById('control-nomination').classList.remove('hidden');
-                document.getElementById('req-team-size').innerText = sizeRequired;
-                renderNominationSelectorGrid(sizeRequired);
-                document.getElementById('game-status-msg').innerText = `당신이 운송대 명단(${sizeRequired}명)을 편성해야 합니다! 제한 시간 내에 인원을 선택하고 제출하세요.`;
+                const leaderDisplay = document.getElementById('admin-leader-name-display');
+                if (leaderDisplay) {
+                  leaderDisplay.innerText = `${leader.name} (${colorObj.name})`;
+                  leaderDisplay.style.color = colorObj.primary;
+                }
+                const avatarPlaceholder = document.getElementById('admin-leader-avatar-placeholder');
+                if (avatarPlaceholder) {
+                  avatarPlaceholder.innerHTML = getCrewmateSVG(colorObj.primary, colorObj.shadow);
+                }
                 
-                // 리더 클라이언트에서도 타이머 진행 표시 (타임아웃 시 자동 지명)
-                startTimer(60, () => {
-                  if (gameState === 'nomination' && selectedNominees.length < sizeRequired) {
-                    autoNominateRandomly(sizeRequired);
-                  }
-                });
-              }
-              
-              // 관리자 뷰에서는 이 상태 전파를 수신했을 때 타이머와 봇 지명 프로세스를 트리거해야 함
-              if (adminLogged) {
-                startNominationPhase();
+                const isUserLeader = (leader.id === myPlayerId);
+                if (isUserLeader && !adminLogged) {
+                  const teamSizes = GAS.getTeamSizes(playerCount);
+                  const sizeRequired = teamSizes[currentRound - 1];
+                  
+                  // 지명 패널 표시
+                  selectedNominees = [];
+                  document.getElementById('nominated-team-list').innerHTML = '<div class="empty-nominee-slot">미편성</div>';
+                  document.getElementById('control-nomination').classList.remove('hidden');
+                  document.getElementById('req-team-size').innerText = sizeRequired;
+                  renderNominationSelectorGrid(sizeRequired);
+                  document.getElementById('game-status-msg').innerText = `당신이 운송대 명단(${sizeRequired}명)을 편성해야 합니다! 제한 시간 내에 인원을 선택하고 제출하세요.`;
+                  
+                  // 리더 클라이언트에서도 타이머 진행 표시 (타임아웃 시 자동 지명)
+                  startTimer(60, () => {
+                    if (gameState === 'nomination' && selectedNominees.length < sizeRequired) {
+                      autoNominateRandomly(sizeRequired);
+                    }
+                  });
+                }
+                
+                // 관리자 뷰에서는 이 상태 전파를 수신했을 때 타이머와 봇 지명 프로세스를 트리거해야 함
+                if (adminLogged) {
+                  startNominationPhase();
+                }
               }
             }
-          }
+          });
         });
       });
     });
@@ -3139,16 +3157,29 @@ function triggerClientEndGame(reason) {
       : "좀비군단 진영 명단 공개";
   }
   
-  const revealedPlayers = players.filter(p => p.alliance === targetAlliance);
-  revealedPlayers.forEach(p => {
-    const colorObj = COLORS.find(c => c.value === p.color);
-    const chip = document.createElement('div');
-    chip.className = 'final-chip';
-    chip.innerHTML = `
-      ${getCrewmateSVG(colorObj.primary, colorObj.shadow)}
-      <span><strong>${p.name}</strong> (${p.role})</span>
-    `;
-    if (finalContainer) finalContainer.appendChild(chip);
+  // 엔딩 화면에서 명단 공개 시 Firebase DB의 room/privateRoles 정보를 완벽하게 동기화하여 출력하도록 수정
+  db.ref('room/privateRoles').once('value', allRolesSnap => {
+    if (allRolesSnap.exists()) {
+      const allRoles = allRolesSnap.val();
+      players.forEach(p => {
+        if (allRoles[p.id]) {
+          p.role = allRoles[p.id].role;
+          p.alliance = allRoles[p.id].alliance;
+        }
+      });
+    }
+    
+    const revealedPlayers = players.filter(p => p.alliance === targetAlliance);
+    revealedPlayers.forEach(p => {
+      const colorObj = COLORS.find(c => c.value === p.color);
+      const chip = document.createElement('div');
+      chip.className = 'final-chip';
+      chip.innerHTML = `
+        ${getCrewmateSVG(colorObj.primary, colorObj.shadow)}
+        <span><strong>${p.name}</strong> (${p.role})</span>
+      `;
+      if (finalContainer) finalContainer.appendChild(chip);
+    });
   });
   
   const overlay = document.getElementById('game-over-overlay');
