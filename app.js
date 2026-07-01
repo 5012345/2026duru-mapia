@@ -1719,7 +1719,7 @@ function startRevealRole(e) {
   secretsDiv.innerHTML = '';
   
   const secretsHeader = document.createElement('strong');
-  secretsHeader.innerText = "🕵️ 기밀 인텔 정보:";
+  secretsHeader.innerText = "🕵️ 기밀 정보:";
   secretsDiv.appendChild(secretsHeader);
   
   let showSecrets = false;
@@ -1760,15 +1760,16 @@ function startRevealRole(e) {
   } 
   else if (user.alliance === 'zombie') {
     showSecrets = true;
-    // All zombies see fellow zombies
+    // 같은 좀비군단 구성원을 모두 표시 (자신 포함, 역할명은 공개하지 않음)
     const fellowZombies = players.filter(p => p.alliance === 'zombie');
     fellowZombies.forEach(z => {
       const colorObj = COLORS.find(c => c.value === z.color);
+      const isSelf = (z.id === (firebaseMode ? myPlayerId : 0)) || (z.id === user.id);
       const item = document.createElement('div');
       item.className = 'secret-item';
       item.innerHTML = `
         ${getCrewmateSVG(colorObj.primary, colorObj.shadow)}
-        <span>좀비군단 동료: ${z.name}</span>
+        <span>좀비군단: ${z.name}${isSelf ? ' (나)' : ''}</span>
       `;
       secretsDiv.appendChild(item);
     });
@@ -2960,17 +2961,18 @@ function animateSyncRoulette() {
   rouletteSpeed *= 0.98;
   
   // 속도가 거의 0에 가까워지면 정확한 목표 슬라이스 중앙으로 부드럽게 스냅
+  // 포인터는 12시 방향(1.5π = 270°)을 가리킴
+  // 슬라이스 i의 중앙이 12시 방향에 오려면: (i+0.5)*sliceAngle + angle = 1.5π
+  // → angle = 1.5π - (i+0.5)*sliceAngle
   if (rouletteSpeed < 0.05 && rouletteTargetIdx >= 0 && players.length > 0) {
     const numSlices = players.length;
     const sliceAngle = (2 * Math.PI) / numSlices;
-    // 포인터가 위쪽(-π/2)을 가리킬 때 targetIdx 슬라이스 중앙이 위에 오려면:
-    // rouletteAngle = -(targetIdx + 0.5) * sliceAngle + π/2 + N*2π (N은 현재 바퀴수에서 가장 가까운 정수)
-    const baseTarget = -(rouletteTargetIdx + 0.5) * sliceAngle + Math.PI * 0.5;
+    const baseTarget = 1.5 * Math.PI - (rouletteTargetIdx + 0.5) * sliceAngle;
     // 현재 각도에서 가장 가까운 동등 각도를 목표로 설정
     const deltaToTarget = ((baseTarget - rouletteAngle) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
     const snapTarget = rouletteAngle + deltaToTarget;
-    // 부드럽게 선형 보간 (lerp): 속도에 비례하게
-    rouletteAngle = rouletteAngle + (snapTarget - rouletteAngle) * 0.1;
+    // 부드럽게 선형 보간 (lerp)
+    rouletteAngle = rouletteAngle + (snapTarget - rouletteAngle) * 0.12;
   }
 
   drawRoulette(rouletteAngle);
@@ -2979,11 +2981,11 @@ function animateSyncRoulette() {
     rouletteAnimating = false;
     rouletteSpeed = 0;
     
-    // 최종 각도를 완전히 목표 슬라이스에 맞게 스냅
+    // 최종 각도를 완전히 목표 슬라이스에 맞게 확정 스냅
     if (rouletteTargetIdx >= 0 && players.length > 0) {
       const numSlices = players.length;
       const sliceAngle = (2 * Math.PI) / numSlices;
-      rouletteAngle = -(rouletteTargetIdx + 0.5) * sliceAngle + Math.PI * 0.5;
+      rouletteAngle = 1.5 * Math.PI - (rouletteTargetIdx + 0.5) * sliceAngle;
       drawRoulette(rouletteAngle);
     }
     const leaderPlayer = players[rouletteTargetIdx];
