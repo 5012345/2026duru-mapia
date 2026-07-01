@@ -788,15 +788,17 @@ function startNominationPhase() {
     }
   });
   
-  // Render buttons/selectors
+  // 노마이네이션 패널 표시 (실제 플레이어가 리더인 경우)
   if (isUserLeader && !adminLogged) {
     document.getElementById('control-nomination').classList.remove('hidden');
     document.getElementById('req-team-size').innerText = sizeRequired;
     renderNominationSelectorGrid(sizeRequired);
   } else {
     document.getElementById('control-nomination').classList.add('hidden');
-    // Bot nomination schedule
-    if (!firebaseMode || adminLogged) {
+    // 보 지명 예약: 리더가 실제 봇인 경우에만 실행
+    const leaderPlayer = players[currentPhaseLeader];
+    const leaderIsBot = leaderPlayer && leaderPlayer.isBot;
+    if ((!firebaseMode || adminLogged) && leaderIsBot) {
       setTimeout(() => {
         if (gameState === 'nomination') {
           botPerformNomination(sizeRequired);
@@ -850,12 +852,17 @@ function toggleNomineeSelection(playerId, sizeRequired) {
 }
 
 function submitNomination() {
+  // 중복 제출 방지
+  if (gameState !== 'nomination') return;
+  clearInterval(timerInterval);
+  
   if (firebaseMode) {
+    gameState = 'submitting_nomination'; // 즉시 상태 변경으로 중복 방지
     db.ref('room/selectedNominees').set(selectedNominees);
     db.ref('room/nominationSubmitted').set(true);
+    db.ref('room/votes').remove();
     db.ref('room/state').set('voting');
   } else {
-    clearInterval(timerInterval);
     document.getElementById('control-nomination').classList.add('hidden');
     
     // Announce nominated team to everyone
@@ -951,18 +958,21 @@ function startVotingPhase() {
   
   document.getElementById('game-status-msg').innerText = "지명된 운송대 명단에 대한 찬성/반대 투표가 진행 중입니다.";
   
-  // Render voting options
-  document.getElementById('control-voting').classList.remove('hidden');
+  // 추드 투표 패널 (플레이어 화면 - admin에서는 handleStateTransition에서 처리)
+  if (!firebaseMode || !adminLogged) {
+    document.getElementById('control-voting').classList.remove('hidden');
+  }
   
   // Start 30s timer
   startTimer(30, () => {
-    // Timeout voting callback: Auto-votes for unsubmitted
+    // 타임아웃: 진영별 강제 투표 처리
     players.forEach(p => {
       if (votes[p.id] === undefined) {
-        if (p.alliance === 'human') {
-          votes[p.id] = true; // Human auto-approve
-        } else {
-          votes[p.id] = false; // Zombie auto-reject
+        const forcedVote = (p.alliance === 'human'); // 저항군 찬성, 좀비 반대
+        votes[p.id] = forcedVote;
+        // Firebase 모드에서는 강제 투표를 DB에도 기록
+        if (firebaseMode && adminLogged) {
+          db.ref(`room/votes/${p.id}`).set(forcedVote);
         }
       }
     });
@@ -988,7 +998,7 @@ function botCastVote(bot) {
   
   if (bot.alliance === 'zombie') {
     // Zombie bots approve if at least one zombie is on the team
-    const teamZombies = selectedNominees.filter(id => players[id].alliance === 'zombie');
+    const teamZombies = selectedNominees.filter(id => { const p = players.find(x => x.id === id); return p && p.alliance === 'zombie'; });
     if (teamZombies.length >= 1) {
       approve = Math.random() < 0.85; // 85% chance to approve if teammate is in
     } else {
@@ -1003,11 +1013,11 @@ function botCastVote(bot) {
     // Human bots
     // Merlin (항체보유자) rejects if there is a zombie on the team
     if (bot.role === '항체보유자') {
-      const teamZombies = selectedNominees.filter(id => players[id].alliance === 'zombie');
+      const teamZombies = selectedNominees.filter(id => { const p = players.find(x => x.id === id); return p && p.alliance === 'zombie'; });
       approve = (teamZombies.length === 0);
     } else if (bot.role === '총사령관') {
       // Commander knows who Antibody Carrier is, rejects if team leader is Zombie and not verified
-      const teamZombies = selectedNominees.filter(id => players[id].alliance === 'zombie');
+      const teamZombies = selectedNominees.filter(id => { const p = players.find(x => x.id === id); return p && p.alliance === 'zombie'; });
       // Weighted logic
       approve = teamZombies.length === 0 ? (Math.random() < 0.75) : (Math.random() < 0.2);
     } else {
@@ -1047,6 +1057,10 @@ function checkAllVotesCast() {
 }
 
 function tallyVotes() {
+  // 중복 호출 방지
+  if (gameState !== 'voting') return;
+  gameState = 'tallying_votes';
+  
   document.getElementById('control-voting').classList.add('hidden');
   
   let approves = 0;
@@ -2858,9 +2872,21 @@ function handleStateTransition(newState) {
               if (isUserLeader && !adminLogged) {
                 const teamSizes = GAS.getTeamSizes(playerCount);
                 const sizeRequired = teamSizes[currentRound - 1];
+                
+                // 지명 패널 표시
+                selectedNominees = [];
+                document.getElementById('nominated-team-list').innerHTML = '<div class="empty-nominee-slot">미편성</div>';
                 document.getElementById('control-nomination').classList.remove('hidden');
                 document.getElementById('req-team-size').innerText = sizeRequired;
                 renderNominationSelectorGrid(sizeRequired);
+                document.getElementById('game-status-msg').innerText = `당신이 운송대 명단(${sizeRequired}명)을 편성해야 합니다! 제한 시간 내에 인원을 선택하고 제출하세요.`;
+                
+                // 리더 클라이언트에서도 타이머 진행 표시 (타임아웃 시 자동 지명)
+                startTimer(60, () => {
+                  if (gameState === 'nomination' && selectedNominees.length < sizeRequired) {
+                    autoNominateRandomly(sizeRequired);
+                  }
+                });
               }
               
               // 관리자 뷰에서는 이 상태 전파를 수신했을 때 타이머와 봇 지명 프로세스를 트리거해야 함
@@ -2877,11 +2903,13 @@ function handleStateTransition(newState) {
     document.getElementById('vote-submitted-status').innerText = '';
     document.getElementById('game-status-msg').innerText = "지명된 운송대 명단에 대한 찬성/반대 투표가 진행 중입니다.";
     
-    if (!adminLogged) {
-      // 재접속 시 이미 투표한 경우 패널 표시 생략
+    if (adminLogged) {
+      // Admin이 투표 단계를 시작할 때 타이머 + 보 투표 예약을 실행
+      startVotingPhase();
+    } else {
+      // 새로고침 시 이미 투표한 경우 패널 표시 생략
       db.ref(`room/votes/${myPlayerId}`).once('value', voteSnap => {
         if (voteSnap.exists()) {
-          // 이미 투표 완료
           const prevVote = voteSnap.val();
           document.getElementById('vote-submitted-status').innerText = `투표 완료: ${prevVote ? '찬성' : '반대'}을 이미 제출했습니다. 다른 참가자들을 대기 중...`;
           document.getElementById('control-voting').classList.add('hidden');
@@ -2890,6 +2918,11 @@ function handleStateTransition(newState) {
         }
       });
     }
+  }
+  else if (newState === 'voting_result') {
+    // 투표 결과 표시 중 (자동 진행, voteResult DB 리스너가 메시지 표시)
+    document.getElementById('control-voting').classList.add('hidden');
+    document.getElementById('vote-submitted-status').innerText = '';
   }
   else if (newState === 'mission_depart') {
     document.getElementById('screen-info-panel').classList.add('hidden');
