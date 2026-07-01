@@ -193,9 +193,13 @@
 
       <!-- Main Status Column -->
       <section class="admin-main">
-        <div class="admin-status-bar">
-          <span class="round-indicator">현재 라운드: <span id="admin-round-num">1</span>/5</span>
-          <span class="reject-indicator">투표 부결 횟수: <span id="admin-reject-num">0</span>/5</span>
+        <div class="admin-status-bar" style="align-items: center;">
+          <span class="round-indicator" style="display: flex; align-items: center; gap: 8px;">현재 라운드: 
+            <span id="round-dots-container" style="display: inline-flex; gap: 6px;"></span>
+          </span>
+          <span class="reject-indicator" style="display: flex; align-items: center; gap: 8px;">투표 부결 횟수: 
+            <span id="reject-dots-container" style="display: inline-flex; gap: 6px;"></span>
+          </span>
         </div>
 
         <!-- Blinking Status Board -->
@@ -259,14 +263,15 @@
     
     <!-- 2. Roulette Overlay -->
     <div id="player-roulette-overlay" class="roulette-overlay">
-      <div class="roulette-overlay-content">
-        <h2 style="color: var(--neon-cyan); text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);">🎡 대장 선정 돌림판</h2>
-        <p style="font-size: 0.9rem; color: var(--text-muted);">운송 작전을 이끌 첫 번째 리더를 무작위로 추첨하고 있습니다.</p>
-        <div class="wheel-wrapper" style="margin: 15px 0;">
-          <canvas id="roulette-canvas-player" width="200" height="200"></canvas>
-          <div class="wheel-pointer"></div>
+      <div class="roulette-overlay-content" style="border: 2px solid var(--neon-cyan); box-shadow: 0 0 30px rgba(0, 240, 255, 0.4);">
+        <h2 style="color: var(--neon-cyan); text-shadow: 0 0 10px rgba(0, 240, 255, 0.5); font-size: 1.3rem;">🎡 대장 선정 진행 중</h2>
+        <div style="margin: 30px 0; padding: 25px; background: rgba(0,0,0,0.5); border-radius: 8px; border: 1px dashed var(--border-color); text-align: center;">
+          <p style="font-size: 1.1rem; color: #fff; font-weight: bold; line-height: 1.6; margin: 0;">
+            이번 라운드 리더가 정해지는 중입니다.<br>
+            <span style="color: var(--neon-cyan); text-shadow: 0 0 5px var(--neon-cyan);">중앙 화면을 봐주세요.</span>
+          </p>
         </div>
-        <div id="roulette-winner-text-player" class="winner-text">회전 중...</div>
+        <div class="winner-text" style="font-size: 0.9rem; color: var(--text-muted);">호스트 화면에서 룰렛 진행도가 표시됩니다.</div>
       </div>
     </div>
     
@@ -475,9 +480,16 @@
                 </div>
               </section>
 
-              <section class="rules-section">
-                <h4>⚙️ GAS 자동 규칙 설정</h4>
-                <p>인원 수(5~10인)에 따른 역할군 세팅 및 라운드별 투입 대원 규모는 GAS(Game Auto-Scaling)에 의해 실시간으로 변동됩니다.</p>
+              <section class="rules-section" id="player-rules-dynamic-info">
+                <h4>⚙️ 이번 게임 세팅 정보</h4>
+                <div style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; font-size: 0.85rem; display: flex; flex-direction: column; gap: 8px;">
+                  <div>👥 총 참가 인원: <span id="rules-info-total" style="color:var(--neon-cyan); font-weight:bold;">--</span></div>
+                  <div>🛡️ 인류 진영 수: <span id="rules-info-human" style="color:var(--neon-green); font-weight:bold;">--</span></div>
+                  <div>🧟 좀비 군단 수: <span id="rules-info-zombie" style="color:var(--neon-red); font-weight:bold;">--</span></div>
+                  <div style="border-top: 1px dashed var(--border-color); margin-top: 4px; padding-top: 6px;">
+                    🚚 라운드별 투입 대원 수: <span id="rules-info-rounds" style="color:#ffb100; font-weight:bold;">--</span>
+                  </div>
+                </div>
               </section>
 
             </div>
@@ -500,6 +512,17 @@
       </div>
       
       <button class="btn btn-primary" onclick="adminResetGame()">처음으로 가기</button>
+    </div>
+  </div>
+
+  <!-- Win 3 Success Alert Overlay screen (flashing siren alert) -->
+  <div id="win-success-alert-overlay" class="game-over-modal hidden" style="background: rgba(0,0,0,0.9); z-index: 999; display: flex; align-items: center; justify-content: center;">
+    <div class="siren-warning-card" style="width: 80%; max-width: 800px; background: rgba(15,15,20,0.9); border: 3px solid var(--neon-red); border-radius: 12px; box-shadow: 0 0 35px var(--neon-red); padding: 30px; text-align: center;">
+      <div style="font-size: 3rem; margin-bottom: 20px; animation: sirenBlink 0.8s infinite alternate;">🚨 WARNING 🚨</div>
+      <div style="font-family: 'Orbitron', 'Noto Sans KR', sans-serif; font-size: 1.2rem; font-weight: 700; line-height: 1.8; color: #fff; word-break: keep-all; text-shadow: 0 0 8px rgba(255,255,255,0.8); animation: textBlink 1.2s infinite alternate;">
+        백신 개발이 거의 끝났습니다! 항체보유자가 생존해있기만 한다면 이제 좀비군단을 다시 인류로 바꿀 수 있습니다!<br><br>
+        저격좀비는 이제 정체를 밝히고 항체보유자를 찾아 암살해야 합니다. 그렇지 못하면 좀비군단의 패배입니다.
+      </div>
     </div>
   </div>
 

@@ -1387,15 +1387,19 @@ function tallyMissionResults() {
 
 function checkGameWinConditions() {
   if (vaccineSuccesses >= 3) {
-    // Human 3 successes -> Sniper Assassin Phase
-    startAssassinationPhase();
+    // 3회 성공 시 경고 연출 화면 전환
+    if (firebaseMode && adminLogged) {
+      db.ref('room/state').set('win_warning');
+    } else {
+      handleStateTransition('win_warning');
+    }
   } else if (vaccineFails >= 3) {
     // Zombie 3 successes -> Zombie Wins
     endGame('zombie_fails');
   } else {
     // Advance to next round
     currentRound++;
-    document.getElementById('admin-round-num').innerText = currentRound;
+    updateStatusDots();
     document.getElementById('game-round-num').innerText = currentRound;
     
     // Shift leader
@@ -1909,10 +1913,63 @@ function updateAdminStatusBoard() {
     case 'assassination':
       board.innerText = '운송 성공 여부 투표중'; // Blinking during assassination too
       break;
+    case 'win_warning':
+      board.innerText = '백신 완성이 코앞입니다!';
+      gameMsg.innerText = '경고 연출 브리핑 진행 중...';
+      break;
     case 'ended':
       board.innerText = '게임 종료';
       gameMsg.innerText = '작전이 종료되었습니다.';
       break;
+  }
+}
+
+// 동그라미 채우기 형식으로 시각적인 표현 (라운드, 부결 횟수)
+function updateStatusDots() {
+  const roundContainer = document.getElementById('round-dots-container');
+  const rejectContainer = document.getElementById('reject-dots-container');
+  if (!roundContainer || !rejectContainer) return;
+  
+  // 라운드 표시 (총 5라운드)
+  roundContainer.innerHTML = '';
+  for (let i = 1; i <= 5; i++) {
+    const dot = document.createElement('span');
+    dot.style.display = 'inline-block';
+    dot.style.width = '14px';
+    dot.style.height = '14px';
+    dot.style.borderRadius = '50%';
+    dot.style.border = '2px solid var(--neon-cyan)';
+    if (i < currentRound) {
+      // 지난 라운드는 채워짐
+      dot.style.background = 'var(--neon-cyan)';
+      dot.style.boxShadow = '0 0 8px var(--neon-cyan)';
+    } else if (i === currentRound) {
+      // 현재 라운드는 깜빡임
+      dot.style.background = 'rgba(0, 240, 255, 0.3)';
+      dot.style.boxShadow = '0 0 10px var(--neon-cyan)';
+      dot.style.animation = 'sirenBlink 1s infinite alternate';
+    } else {
+      dot.style.background = 'transparent';
+    }
+    roundContainer.appendChild(dot);
+  }
+  
+  // 부결 표시 (총 5회)
+  rejectContainer.innerHTML = '';
+  for (let i = 1; i <= 5; i++) {
+    const dot = document.createElement('span');
+    dot.style.display = 'inline-block';
+    dot.style.width = '14px';
+    dot.style.height = '14px';
+    dot.style.borderRadius = '50%';
+    dot.style.border = '2px solid var(--neon-red)';
+    if (i <= rejectCount) {
+      dot.style.background = 'var(--neon-red)';
+      dot.style.boxShadow = '0 0 8px var(--neon-red)';
+    } else {
+      dot.style.background = 'transparent';
+    }
+    rejectContainer.appendChild(dot);
   }
 }
 
@@ -1960,8 +2017,7 @@ function adminResetGame() {
   document.getElementById('vaccine-liquid-group').style.transform = 'translateY(180px)';
   
   // Reset UI components
-  document.getElementById('admin-round-num').innerText = '1';
-  document.getElementById('admin-reject-num').innerText = '0';
+  updateStatusDots();
   document.getElementById('game-round-num').innerText = '1';
   document.getElementById('game-leader-name').innerText = '--';
   document.getElementById('nominated-team-list').innerHTML = '<div class="empty-nominee-slot">미편성</div>';
@@ -1984,6 +2040,7 @@ function adminResetGame() {
   if (adminOverlay) adminOverlay.classList.remove('show');
   document.getElementById('admin-intro-screen').classList.add('hidden');
   document.getElementById('player-intro-screen').classList.add('hidden');
+  document.getElementById('win-success-alert-overlay').classList.add('hidden');
   
   document.getElementById('control-nomination').classList.add('hidden');
   document.getElementById('control-voting').classList.add('hidden');
@@ -2620,6 +2677,20 @@ function setupFirebaseListeners() {
     // Sort players array alphabetically by ID to guarantee identical indices on all clients
     players.sort((a, b) => a.id.localeCompare(b.id));
     
+    // 룰 탭에 현재 대인 수, 좀비 수, 라운드별 대원 수 정보 실시간 표기
+    const totalEl = document.getElementById('rules-info-total');
+    const humanEl = document.getElementById('rules-info-human');
+    const zombieEl = document.getElementById('rules-info-zombie');
+    const roundsEl = document.getElementById('rules-info-rounds');
+    if (totalEl && humanEl && zombieEl && roundsEl) {
+      const config = GAS.getRolesConfig(playerCount);
+      const teamSizes = GAS.getTeamSizes(playerCount);
+      totalEl.innerText = `${playerCount}명`;
+      humanEl.innerText = `${config.human}명`;
+      zombieEl.innerText = `${config.zombie}명`;
+      roundsEl.innerText = teamSizes.join('인 - ') + '인';
+    }
+    
     // Update Lobby UI
     if (gameState === 'setup' || gameState === 'waiting_start') {
       updateLobbyGridFromFirebase();
@@ -2806,8 +2877,8 @@ function handleStateTransition(newState) {
     document.getElementById('game-timer').innerText = '--';
     document.getElementById('beaker-percent').innerText = '0';
     document.getElementById('vaccine-liquid-group').style.transform = 'translateY(180px)';
-    document.getElementById('admin-round-num').innerText = '1';
-    document.getElementById('admin-reject-num').innerText = '0';
+    
+    updateStatusDots();
     document.getElementById('game-round-num').innerText = '1';
     document.getElementById('game-leader-name').innerText = '--';
     document.getElementById('nominated-team-list').innerHTML = '<div class="empty-nominee-slot">미편성</div>';
@@ -2863,7 +2934,7 @@ function handleStateTransition(newState) {
         db.ref('room/currentRound').once('value', roundSnap => {
           if (roundSnap.exists()) {
             currentRound = roundSnap.val();
-            document.getElementById('admin-round-num').innerText = currentRound;
+            updateStatusDots();
             document.getElementById('game-round-num').innerText = currentRound;
           }
           
@@ -2969,6 +3040,23 @@ function handleStateTransition(newState) {
       document.getElementById('game-status-msg').innerText = "지명된 운송대원들이 백신 수송 카드를 제출하고 있습니다.";
     }
   }
+  else if (newState === 'win_warning') {
+    // 3회 성공 시 경고 오버레이 깜빡임 화면 재생
+    const warningOverlay = document.getElementById('win-success-alert-overlay');
+    if (warningOverlay) {
+      warningOverlay.classList.remove('hidden');
+    }
+    
+    // 4초 뒤 경고 오버레이를 닫고 본 단계(assassination)로 상태 전파(호스트 전용)
+    setTimeout(() => {
+      if (warningOverlay) {
+        warningOverlay.classList.add('hidden');
+      }
+      if (!firebaseMode || adminLogged) {
+        startAssassinationPhase();
+      }
+    }, 4000);
+  }
   else if (newState === 'assassination') {
     const sniper = players.find(p => p.role === '저격좀비');
     if (sniper) {
@@ -2982,10 +3070,9 @@ function handleStateTransition(newState) {
       
       const isUserSniper = (sniper.id === myPlayerId);
       if (isUserSniper && !adminLogged) {
-        setTimeout(() => {
-          document.getElementById('control-assassination').classList.remove('hidden');
-          renderAssassinationTargetGrid();
-        }, 4000);
+        // 이미 4초 경고 카드를 보았으므로 바로 저격 패널 활성화
+        document.getElementById('control-assassination').classList.remove('hidden');
+        renderAssassinationTargetGrid();
       }
     }
   }

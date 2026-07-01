@@ -1758,3 +1758,14 @@ h1, h2, h3, h4, .font-tech {
     margin-top: 8px;
   }
 }
+
+/* Blinking animations for warning overlay */
+@keyframes sirenBlink {
+  0% { color: var(--neon-red); text-shadow: 0 0 10px var(--neon-red), 0 0 20px var(--neon-red); opacity: 0.9; }
+  100% { color: #fff; text-shadow: 0 0 5px #fff; opacity: 0.4; }
+}
+
+@keyframes textBlink {
+  0% { opacity: 0.95; transform: scale(1.0); }
+  100% { opacity: 0.7; transform: scale(0.98); }
+}
