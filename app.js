@@ -1104,7 +1104,7 @@ function tallyVotes() {
   if (passed) {
     logText += `운송대 명단 가결! 임무를 시작합니다.`;
     rejectCount = 0; // reset
-    document.getElementById('admin-reject-num').innerText = rejectCount;
+    updateStatusDots();
     
     // Add logs
     addAdminLog(logText, 'success');
@@ -1121,7 +1121,7 @@ function tallyVotes() {
     }, 4000);
   } else {
     rejectCount++;
-    document.getElementById('admin-reject-num').innerText = rejectCount;
+    updateStatusDots();
     logText += `운송대 명단 부결! (부결 횟수: ${rejectCount}/5). 대장이 교체됩니다.`;
     
     addAdminLog(logText, 'danger');
@@ -2093,7 +2093,7 @@ function addAdminLog(text, type = '') {
         consoleCard.style.minHeight = '280px';
         consoleCard.innerHTML = `
           <h3 style="font-size: 1rem; color: var(--neon-cyan); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 10px;">📝 작전 활동 로그</h3>
-          <div id="admin-log-console" style="overflow-y:auto; flex:1; font-family:'Courier New', monospace; font-size:0.95rem; color:#e2e8f0; line-height:1.6; display:flex; flex-direction:column; gap:6px; padding: 10px; background: rgba(0,0,0,0.4); border-radius: 6px;"></div>
+          <div id="admin-log-console" style="overflow-y:auto; flex:1; font-family:'Courier New', monospace; font-size:1.4rem; color:#e2e8f0; line-height:1.6; display:flex; flex-direction:column; gap:6px; padding: 10px; background: rgba(0,0,0,0.4); border-radius: 6px;"></div>
         `;
         parent.appendChild(consoleCard);
         logConsole = document.getElementById('admin-log-console');
@@ -2740,7 +2740,7 @@ function setupFirebaseListeners() {
           consoleCard.style.minHeight = '280px'; // 최소 높이 설정
           consoleCard.innerHTML = `
             <h3 style="font-size: 1rem; color: var(--neon-cyan); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 10px;">📝 작전 활동 로그</h3>
-            <div id="admin-log-console" style="overflow-y:auto; flex:1; font-family:'Courier New', monospace; font-size:0.95rem; color:#e2e8f0; line-height:1.6; display:flex; flex-direction:column; gap:6px; padding: 10px; background: rgba(0,0,0,0.4); border-radius: 6px;"></div>
+            <div id="admin-log-console" style="overflow-y:auto; flex:1; font-family:'Courier New', monospace; font-size:1.4rem; color:#e2e8f0; line-height:1.6; display:flex; flex-direction:column; gap:6px; padding: 10px; background: rgba(0,0,0,0.4); border-radius: 6px;"></div>
           `;
           parent.appendChild(consoleCard);
           logConsole = document.getElementById('admin-log-console');
@@ -2834,8 +2834,7 @@ function setupFirebaseListeners() {
       }
       
       rejectCount = data.rejectCount;
-      const rejectDisplay = document.getElementById('admin-reject-num');
-      if (rejectDisplay) rejectDisplay.innerText = rejectCount;
+      updateStatusDots();
     }
   });
   
